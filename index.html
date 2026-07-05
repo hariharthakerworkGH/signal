@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14151F">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Signal — Episode Tracker</title>
+<style>
+  :root {
+    --bg:#14151F; --card:#1C1E2C; --cardup:#232538; --line:#2C2F44;
+    --text:#EAE8E1; --dim:#9092A6; --faint:#5C5E72;
+    --amber:#FFB454; --amberdim:#8A6430; --cyan:#5FD4D0; --violet:#A78BFA; --red:#E36B6B;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:'Archivo',system-ui,-apple-system,sans-serif; }
+  .root { max-width:640px; margin:0 auto; padding:20px 16px calc(64px + env(safe-area-inset-bottom)); }
+  .mono { font-family:ui-monospace,'SF Mono',Menlo,monospace; }
+  h1 { font-weight:900; font-size:34px; margin:4px 0 0; letter-spacing:-.02em; line-height:1; }
+  .eyebrow { font-size:11px; color:var(--cyan); letter-spacing:.18em; }
+  .btn { font-family:inherit; font-weight:600; font-size:12px; letter-spacing:.04em;
+         border:1px solid var(--line); background:transparent; color:var(--dim);
+         border-radius:6px; padding:6px 11px; cursor:pointer; }
+  .btn:active { color:var(--text); border-color:var(--faint); }
+  .btn:disabled { opacity:.5; }
+  .btn.hot { background:var(--amber); border-color:var(--amber); color:#1A1408; }
+  .btn.warn { color:var(--red); border-color:rgba(227,107,107,.4); }
+  .tab { font-family:inherit; font-weight:800; font-size:13px; letter-spacing:.08em;
+         background:none; border:none; cursor:pointer; padding:8px 2px; margin-right:18px;
+         color:var(--faint); border-bottom:2px solid transparent; }
+  .tab.act { color:var(--text); border-bottom-color:var(--amber); }
+  input, select { font-family:inherit; background:var(--card); border:1px solid var(--line);
+          border-radius:8px; color:var(--text); padding:11px 13px; font-size:15px; width:100%; }
+  input:focus { outline:none; border-color:var(--amber); }
+  .cell { width:26px; height:26px; border-radius:4px; border:1px solid var(--line);
+          background:#191B28; cursor:pointer; padding:0; transition:background .15s, box-shadow .15s; }
+  .cell.on { background:var(--amber); border-color:var(--amber); box-shadow:0 0 8px rgba(255,180,84,.45); }
+  .cell.locked { background:transparent; border:1px dashed var(--faint); opacity:.45; }
+  @media (prefers-reduced-motion:reduce){ .cell{transition:none;} }
+  .cell:focus-visible { outline:2px solid var(--cyan); outline-offset:1px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:12px; }
+  .cardhead { display:block; width:100%; text-align:left; background:none; border:none;
+              color:var(--text); padding:14px 14px 12px; cursor:pointer; font-family:inherit; }
+  .chip { display:inline-block; font-size:10px; letter-spacing:.06em; color:var(--dim);
+          border:1px solid var(--line); border-radius:4px; padding:2px 6px; margin:0 5px 4px 0; }
+  .bar { height:4px; background:#101120; border-radius:2px; overflow:hidden; }
+  .bar > div { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--amberdim),var(--amber)); transition:width .25s; }
+  .row { display:flex; justify-content:space-between; align-items:baseline;
+         border-bottom:1px solid var(--line); padding:9px 2px; }
+  .sect { font-size:11px; letter-spacing:.16em; color:var(--faint); margin:0 0 10px; }
+  .empty { border:1px dashed var(--line); border-radius:12px; padding:30px 20px;
+           text-align:center; color:var(--dim); font-size:14px; }
+  .result { display:flex; gap:12px; align-items:center; background:var(--cardup);
+            border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:8px;
+            cursor:pointer; width:100%; text-align:left; color:var(--text); font-family:inherit; }
+  .result img { width:42px; height:63px; border-radius:6px; object-fit:cover; background:#101120; }
+  .stats { display:flex; gap:16px; font-size:11px; color:var(--dim); flex-wrap:wrap;
+           border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+           padding:10px 2px; margin:12px 0 4px; }
+  .stats b { color:var(--amber); }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+           background:var(--cardup); border:1px solid var(--line); color:var(--text);
+           border-radius:8px; padding:10px 16px; font-size:13px; z-index:99; max-width:90vw; }
+  .hidden { display:none !important; }
+  .poster { width:46px; height:69px; border-radius:6px; object-fit:cover; background:#101120; flex-shrink:0; }
+</style>
+</head>
+<body>
+<div class="root">
+
+  <header style="margin-bottom:16px">
+    <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end">
+      <h1>SIGNAL</h1>
+      <div>
+        <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
+        <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:10px">
+      <div class="mono" id="statusLine" style="font-size:11px;color:var(--violet);margin-top:6px"></div>
+      <div class="mono" id="cloudBadge" style="font-size:11px;color:var(--cyan);margin-top:6px;flex-shrink:0"></div>
+    </div>
+  </header>
+
+  <!-- SETTINGS -->
+  <div id="settingsPanel" class="hidden" style="margin-bottom:20px;border:1px solid var(--line);border-radius:12px;padding:14px">
+    <div class="sect mono">SETTINGS</div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:6px">Cloud sync (phone ↔ laptop) — GitHub token with gist scope</div>
+    <input id="tokenInput" type="password" placeholder="Paste GitHub token (gist scope only)" style="margin:0 0 8px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <button class="btn hot" id="saveTokenBtn">Connect sync</button>
+      <button class="btn warn" id="clearTokenBtn">Disconnect</button>
+      <button class="btn" id="pullNowBtn">Sync now</button>
+    </div>
+    <div style="font-size:11px;color:var(--faint);margin-bottom:14px">
+      github.com → Settings → Developer settings → Personal access tokens (classic) → Generate → tick only "gist". Paste the same token on every device.
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:8px">My subscriptions — used by the Discover tab</div>
+    <div id="platformBoxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="exportBtn">Export backup</button>
+      <button class="btn" id="importBtn">Import backup</button>
+      <input type="file" id="importFile" accept=".json" class="hidden">
+    </div>
+    <div style="font-size:11px;color:var(--faint);margin-top:10px">
+      Show data comes from TVmaze — no account or API key needed. Export a backup monthly; your watch history lives only in this browser.
+    </div>
+  </div>
+
+  <!-- ADD -->
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <input id="q" placeholder="Add any show — even unreleased ones" style="flex:1" enterkeyhint="search">
+    <button class="btn hot" id="addBtn" style="padding:0 16px;font-size:13px;flex-shrink:0">Search</button>
+  </div>
+  <div id="msg" style="font-size:13px;color:var(--red);margin-bottom:8px"></div>
+  <div id="results"></div>
+
+  <div class="stats mono" id="stats"></div>
+  <div id="backupNag"></div>
+
+  <nav style="margin:6px 0 18px">
+    <button class="tab act" id="tabShows">SHOWS</button>
+    <button class="tab" id="tabCal">CALENDAR</button>
+    <button class="tab" id="tabDisc">DISCOVER</button>
+  </nav>
+
+  <main id="view"></main>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script>
+/* ================= state & storage ================= */
+const $ = (id) => document.getElementById(id);
+const todayISO = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const pad = (n) => String(n).padStart(2,"0");
+function store(k,v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){ return null; } }
+let db = []; try { db = JSON.parse(store("signal.db")||"[]"); } catch(e){ db=[]; }
+let delMap = {}; try { delMap = JSON.parse(store("signal.del")||"{}"); } catch(e){ delMap={}; }
+let ghToken = store("signal.token")||"";
+let gistId = store("signal.gistid")||"";
+let pushTimer=null, cloudBusy=false, lastCloud=+store("signal.lastcloud")||0;
+
+function saveLocal(){ store("signal.db", JSON.stringify(db)); store("signal.del", JSON.stringify(delMap)); }
+function save(){ saveLocal(); schedulePush(); }
+function touch(sh){ sh.updatedAt=Date.now(); }
+
+/* ================= cloud sync via private GitHub Gist ================= */
+const GIST_FILE="signal-db.json";
+async function gh(path, opts={}){
+  const r=await fetch("https://api.github.com"+path, {...opts,
+    headers:{ "Authorization":"Bearer "+ghToken, "Accept":"application/vnd.github+json", ...(opts.headers||{}) }});
+  if(r.status===401) throw new Error("BADTOKEN");
+  if(!r.ok) throw new Error("HTTP"+r.status);
+  return r.json();
+}
+async function findGist(){
+  if(gistId) return gistId;
+  const gists=await gh("/gists?per_page=100");
+  const hit=(gists||[]).find(g=>g.files&&g.files[GIST_FILE]);
+  if(hit){ gistId=hit.id; store("signal.gistid",gistId); return gistId; }
+  return null;
+}
+function mergeCloud(remoteShows, remoteDel){
+  // union tombstones, per-id newest
+  for(const [id,ts] of Object.entries(remoteDel||{}))
+    if(!delMap[id]||ts>delMap[id]) delMap[id]=ts;
+  // union shows, per-id newest updatedAt (local wins ties)
+  const map={};
+  for(const s of (remoteShows||[])) map[s.id]=s;
+  for(const s of db) if(!map[s.id]||(s.updatedAt||0)>=(map[s.id].updatedAt||0)) map[s.id]=s;
+  const before=JSON.stringify(db.map(s=>[s.id,s.updatedAt,Object.keys(s.watched||{}).length]));
+  db=Object.values(map)
+    .filter(s=>!(delMap[s.id]&&delMap[s.id]>(s.updatedAt||0)))
+    .sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
+  const after=JSON.stringify(db.map(s=>[s.id,s.updatedAt,Object.keys(s.watched||{}).length]));
+  return before!==after;
+}
+async function pullCloud(quiet){
+  if(!ghToken||cloudBusy) return;
+  cloudBusy=true;
+  try{
+    const id=await findGist();
+    if(id){
+      const g=await gh("/gists/"+id);
+      const f=g.files&&g.files[GIST_FILE];
+      let content=f&&f.content;
+      if(f&&f.truncated) content=await (await fetch(f.raw_url)).text();
+      if(content){
+        const remote=JSON.parse(content);
+        const changed=mergeCloud(remote.shows, remote.deleted);
+        saveLocal();
+        if(changed){ render(); if(!quiet) toast("Synced from cloud."); }
+      }
+    }
+    lastCloud=Date.now(); store("signal.lastcloud",String(lastCloud));
+  }catch(e){ if(!quiet) toast(e.message==="BADTOKEN"?"GitHub token rejected — check settings.":"Cloud pull failed."); }
+  cloudBusy=false; updateCloudBadge();
+}
+async function pushCloud(){
+  if(!ghToken) return;
+  clearTimeout(pushTimer); pushTimer=null;
+  try{
+    const body=JSON.stringify({ files:{ [GIST_FILE]:{ content: JSON.stringify({v:1, ts:Date.now(), shows:db, deleted:delMap}) } } });
+    let id=await findGist();
+    if(id){ await gh("/gists/"+id,{method:"PATCH",body}); }
+    else{
+      const g=await gh("/gists",{method:"POST",
+        body:JSON.stringify({description:"Signal tracker database (auto-managed)",public:false,
+          files:{[GIST_FILE]:{content:JSON.stringify({v:1,ts:Date.now(),shows:db,deleted:delMap})}}})});
+      gistId=g.id; store("signal.gistid",gistId);
+    }
+    lastCloud=Date.now(); store("signal.lastcloud",String(lastCloud));
+  }catch(e){ toast(e.message==="BADTOKEN"?"GitHub token rejected — sync off.":"Cloud push failed — will retry on next change."); }
+  updateCloudBadge();
+}
+function schedulePush(){ if(!ghToken) return; clearTimeout(pushTimer); pushTimer=setTimeout(pushCloud,2500); }
+function updateCloudBadge(){
+  const el=$("cloudBadge"); if(!el) return;
+  el.textContent = ghToken? (pushTimer?"☁ saving…":"☁ synced "+agoLabel(lastCloud)) : "";
+}
+let tab = "shows", libTab = "watching", openId = null, confirmDel = null, syncing = false;
+
+function toast(t, ms=2600){ const el=$("toast"); el.textContent=t; el.classList.remove("hidden"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.add("hidden"),ms); }
+function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* ================= TVmaze (no API key needed) ================= */
+const MAZE = "https://api.tvmaze.com";
+async function maze(path){
+  const r = await fetch(MAZE+path);
+  if(!r.ok) throw new Error("HTTP"+r.status);
+  return r.json();
+}
+
+async function fetchFullShow(showId, existingWatched){
+  // one call: show details + every episode + next scheduled episode
+  const det = await maze(`/shows/${showId}?embed[]=episodes&embed[]=nextepisode`);
+  const bySeason = {};
+  for(const ep of (det._embedded&&det._embedded.episodes)||[]){
+    if(!ep.season||!ep.number) continue; // skip specials/unnumbered
+    (bySeason[ep.season]=bySeason[ep.season]||[]).push({ e:ep.number, air:ep.airdate||null, ts:ep.airstamp||null, name:(ep.name||"").slice(0,60) });
+  }
+  const seasons = Object.keys(bySeason).map(Number).sort((a,b)=>a-b)
+    .map(sn=>({ season:sn, eps:bySeason[sn].sort((a,b)=>a.e-b.e) }));
+  if(seasons.some(x=>x.eps.length>150)) throw new Error("DAILY"); // daily-serial guard
+  const nx = det._embedded && det._embedded.nextepisode;
+  const homeOn = (det.webChannel&&det.webChannel.name)||(det.network&&det.network.name)||null;
+  const firstAir = det.premiered||null;
+  const hasAired = seasons.some(s=>s.eps.some(e=>epLive(e)));
+  return {
+    id: det.id, title: det.name,
+    year: firstAir? +firstAir.slice(0,4): null,
+    poster: (det.image&&det.image.medium)||null,
+    inProduction: det.status==="Running"||det.status==="In Development",
+    tmdbStatus: det.status==="Running"? "Returning Series": (det.status||""),
+    runtime: det.averageRuntime||det.runtime||40,
+    watchOn: homeOn? [homeOn]:[],
+    firstAir,
+    upcoming: !hasAired,
+    nextEp: (nx&&(nx.airstamp||nx.airdate))? { s:nx.season, e:nx.number, ts:nx.airstamp||null, date: nx.airstamp? localDate(nx.airstamp): nx.airdate }: null,
+    seasons,
+    watched: existingWatched||{},
+    lastSynced: Date.now()
+  };
+}
+
+/* ================= derived ================= */
+const epK=(s,e)=>s+"-"+e;
+function epLive(ep){ // has this episode's exact air moment passed (device clock = IST)?
+  if(ep.ts) return new Date(ep.ts)<=new Date();
+  return !!ep.air && ep.air<=todayISO(); // no timestamp: treat date as IST date
+}
+function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep); }
+function localDate(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function epDate(ep){ return ep.ts? localDate(ep.ts): (ep.air||null); } // IST calendar date
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}); }
+const airedTotal=(sh)=>sh.seasons.reduce((a,s)=>a+s.eps.filter(ep=>aired(sh,ep)).length,0);
+const totalEps=(sh)=>sh.seasons.reduce((a,s)=>a+s.eps.length,0);
+const wCount=(sh)=>Object.keys(sh.watched||{}).length;
+function nextUnwatched(sh){
+  for(const s of sh.seasons) for(const ep of s.eps)
+    if(aired(sh,ep)&&!sh.watched[epK(s.season,ep.e)]) return {s:s.season,e:ep.e,name:ep.name||""};
+  return null;
+}
+function daysAway(iso){ if(!iso) return null;
+  return Math.round((new Date(iso+"T00:00:00")-new Date(todayISO()+"T00:00:00"))/86400000); }
+function fmtDate(iso){
+  const n=daysAway(iso); if(n===null||isNaN(n)) return iso||"TBA";
+  if(n===0) return "Today"; if(n===1) return "Tomorrow";
+  const s=new Date(iso+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
+  return n>1&&n<=7? s+" · in "+n+"d" : s;
+}
+const agoLabel=(ts)=>{ if(!ts) return "never"; const h=Math.floor((Date.now()-ts)/36e5);
+  return h<1?"just now":h<24?h+"h ago":Math.floor(h/24)+"d ago"; };
+
+/* ================= actions ================= */
+async function doSearch(){
+  const q=$("q").value.trim(); if(!q) return;
+  $("msg").textContent=""; $("results").innerHTML="";
+  if(!navigator.onLine){ $("msg").textContent="You're offline — adding shows needs internet."; return; }
+  $("addBtn").disabled=true; $("addBtn").textContent="…";
+  try{
+    const r=await maze("/search/shows?q="+encodeURIComponent(q));
+    const hits=(r||[]).slice(0,5).map(x=>x.show);
+    if(!hits.length){ $("msg").textContent=`No results for "${q}".`; }
+    $("results").innerHTML=hits.map(h=>`
+      <button class="result" data-id="${h.id}">
+        <img src="${(h.image&&h.image.medium)||''}" alt="" onerror="this.style.visibility='hidden'">
+        <span><b>${esc(h.name)}</b> <span style="color:var(--faint);font-size:12px">${h.premiered? h.premiered.slice(0,4):"TBA"}</span><br>
+        <span style="font-size:11px;color:var(--dim)">${esc((h.summary||"").replace(/<[^>]+>/g,"").slice(0,80))}…</span></span>
+      </button>`).join("");
+    document.querySelectorAll(".result").forEach(b=>b.onclick=()=>addShow(+b.dataset.id));
+  }catch(e){ $("msg").textContent = "Search failed. Check connection."; }
+  $("addBtn").disabled=false; $("addBtn").textContent="Search";
+}
+
+async function addShow(showId){
+  if(db.some(s=>s.id===showId)){ toast("Already on your list."); $("results").innerHTML=""; return; }
+  $("results").innerHTML=""; $("q").value=""; toast("Fetching full episode data…",6000);
+  try{
+    const show=await fetchFullShow(showId);
+    touch(show);
+    db.unshift(show); save(); openId=show.id; libTab=catOf(show); render();
+    toast(`Added ${show.title} — ${totalEps(show)} episodes on record.`);
+  }catch(e){ toast(e.message==="DAILY"? "That looks like a daily serial (150+ eps/season) — not supported.":"Add failed — network error."); }
+}
+
+async function syncShow(id, silent){
+  const sh=db.find(s=>s.id===id); if(!sh||syncing) return;
+  if(!navigator.onLine){ toast("Offline — sync needs internet."); return; }
+  syncing=true; if(!silent) toast(`Syncing ${sh.title}…`,5000); render();
+  try{
+    const fresh=await fetchFullShow(id, sh.watched);
+    Object.assign(sh, fresh); touch(sh); save();
+    if(!silent) toast(`${sh.title} synced.`);
+  }catch(e){ if(!silent) toast(`Sync failed for ${sh.title}.`); }
+  syncing=false; render();
+}
+
+async function syncAll(){
+  if(syncing) return;
+  if(!navigator.onLine){ toast("Offline — sync needs internet."); return; }
+  const targets=db.filter(s=>s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series");
+  if(!targets.length){ toast("Nothing active to sync."); return; }
+  syncing=true;
+  for(let i=0;i<targets.length;i++){
+    $("statusLine").textContent=`Syncing ${i+1}/${targets.length} — ${targets[i].title}`;
+    try{ const fresh=await fetchFullShow(targets[i].id, targets[i].watched);
+         Object.assign(targets[i], fresh); touch(targets[i]); save(); }catch(e){}
+  }
+  syncing=false; $("statusLine").textContent=""; render(); toast("Sync complete.");
+}
+
+function toggleEp(id,s,e){
+  const sh=db.find(x=>x.id===id);
+  const seas=sh.seasons.find(x=>x.season===s); const ep=seas.eps.find(x=>x.e===e);
+  if(!aired(sh,ep)) return;
+  const before=catOf(sh);
+  const k=epK(s,e);
+  if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=1;
+  const after=catOf(sh);
+  if(before!==after) toast(`${sh.title} moved to ${after.toUpperCase()}.`);
+  touch(sh); save(); render();
+}
+let undoState=null;
+function toastUndo(t){
+  const el=$("toast");
+  el.innerHTML=esc(t)+' <button class="btn hot" id="undoBtn" style="margin-left:10px">Undo</button>';
+  el.classList.remove("hidden"); clearTimeout(el._t);
+  el._t=setTimeout(()=>{ el.classList.add("hidden"); el.textContent=""; undoState=null; },8000);
+  document.getElementById("undoBtn").onclick=()=>{
+    if(undoState){ const sh=db.find(x=>x.id===undoState.id);
+      if(sh){ sh.watched=undoState.watched; touch(sh); save(); render(); } }
+    undoState=null; el.classList.add("hidden"); el.textContent="";
+  };
+}
+function markSeason(id,s,on){
+  const sh=db.find(x=>x.id===id); const seas=sh.seasons.find(x=>x.season===s);
+  undoState={id:sh.id, watched:{...sh.watched}};
+  for(const ep of seas.eps){ const k=epK(s,ep.e);
+    if(on&&aired(sh,ep)) sh.watched[k]=1; if(!on) delete sh.watched[k]; }
+  touch(sh); save(); render();
+  toastUndo(on? "Season "+s+" marked.":"Season "+s+" cleared.");
+}
+function catchUp(id){
+  const sh=db.find(x=>x.id===id);
+  undoState={id:sh.id, watched:{...sh.watched}};
+  sh.watched={};
+  for(const s of sh.seasons) for(const ep of s.eps) if(aired(sh,ep)) sh.watched[epK(s.season,ep.e)]=1;
+  touch(sh); save(); render();
+  toastUndo(`Caught up — moved to ${catOf(sh).toUpperCase()}.`);
+}
+function markNext(id){ const sh=db.find(x=>x.id===id); const n=nextUnwatched(sh); if(n) toggleEp(id,n.s,n.e); }
+function removeShow(id){ db=db.filter(s=>s.id!==id); delMap[id]=Date.now(); confirmDel=null; if(openId===id) openId=null; save(); render(); }
+
+/* ================= export / import ================= */
+function exportDb(){
+  const blob=new Blob([JSON.stringify({v:2,exported:new Date().toISOString(),shows:db},null,1)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="signal-backup-"+todayISO()+".json"; a.click();
+  store("signal.lastexport",String(Date.now()));
+}
+function importDb(file){
+  const r=new FileReader();
+  r.onload=()=>{ try{ const j=JSON.parse(r.result);
+      if(Array.isArray(j.shows)){ db=j.shows; db.forEach(x=>touch(x)); save(); render(); toast(`Imported ${db.length} shows.`); }
+      else toast("Not a Signal backup file.");
+    }catch(e){ toast("Import failed — invalid file."); } };
+  r.readAsText(file);
+}
+
+/* ================= discover: platforms & premieres ================= */
+const PLATFORMS=[
+  {id:"netflix",  label:"Netflix",     match:["netflix"]},
+  {id:"prime",    label:"Prime Video", match:["prime video","amazon"]},
+  {id:"jiohotstar",label:"JioHotstar", match:["hotstar","jiocinema","jiohotstar"]},
+  {id:"disney",   label:"Disney+",     match:["disney+"]},
+  {id:"zee5",     label:"ZEE5",        match:["zee5"]},
+  {id:"sonyliv",  label:"SonyLIV",     match:["sonyliv"]},
+  {id:"appletv",  label:"Apple TV+",   match:["apple tv+"]},
+];
+let myPlatforms=[]; try{ myPlatforms=JSON.parse(store("signal.platforms")||"[]"); }catch(e){}
+let discCache=null; try{ discCache=JSON.parse(store("signal.discover")||"null"); }catch(e){}
+let discLoading=false;
+
+function platformMatch(channelName){
+  const c=(channelName||"").toLowerCase();
+  return PLATFORMS.filter(p=>myPlatforms.includes(p.id)&&p.match.some(m=>c.includes(m)));
+}
+
+async function fetchDiscover(force){
+  if(discLoading) return;
+  if(!force && discCache && Date.now()-discCache.ts<12*3600*1000){ render(); return; }
+  if(!navigator.onLine){ toast("Offline — Discover needs internet."); return; }
+  if(!myPlatforms.length){ render(); return; }
+  discLoading=true; render();
+  const found={};
+  try{
+    for(let d=0; d<7; d++){
+      const dt=new Date(); dt.setDate(dt.getDate()+d);
+      const iso=dt.getFullYear()+"-"+pad(dt.getMonth()+1)+"-"+pad(dt.getDate());
+      let items=[];
+      try{ items=await maze("/schedule/web?date="+iso); }catch(e){}
+      for(const ep of items||[]){
+        if(ep.number!==1) continue;                       // premieres only (new show or new season)
+        const show=ep._embedded&&ep._embedded.show; if(!show) continue;
+        const hits=platformMatch(show.webChannel&&show.webChannel.name);
+        if(!hits.length) continue;
+        if(!found[show.id]) found[show.id]={
+          id:show.id, title:show.name,
+          poster:(show.image&&show.image.medium)||null,
+          date:ep.airdate||iso, season:ep.season,
+          platform:hits[0].label,
+          blurb:(show.summary||"").replace(/<[^>]+>/g,"").slice(0,90)
+        };
+      }
+      await new Promise(r=>setTimeout(r,350));
+    }
+    discCache={ts:Date.now(), items:Object.values(found).sort((a,b)=>a.date<b.date?-1:1)};
+    store("signal.discover", JSON.stringify(discCache));
+  }catch(e){ toast("Discover refresh failed."); }
+  discLoading=false; render();
+}
+
+function renderDiscover(){
+  if(!myPlatforms.length)
+    return `<div class="empty">Pick your subscriptions first — open settings (⚙) and tick Netflix, Prime, JioHotstar etc. Discover will list new premieres on them.</div>`;
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="sect mono" style="margin:0">PREMIERES · NEXT 7 DAYS · ${myPlatforms.map(id=>PLATFORMS.find(p=>p.id===id).label).join(" / ")}</div>
+    <button class="btn" data-discrefresh="1" ${discLoading?"disabled":""}>${discLoading?"…":"⟳"}</button></div>`;
+  if(discLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Scanning the schedule…</div>`;
+  const items=(discCache&&discCache.items)||[];
+  if(!items.length&&!discLoading)
+    return h+`<div class="empty">No premieres found on your platforms in the next 7 days. Only shows whose home platform matches count — licensed imports won't appear.</div>`;
+  for(const it of items){
+    const have=db.some(s=>s.id===it.id);
+    h+=`<div class="result" style="cursor:default">
+      <img src="${it.poster||''}" alt="" onerror="this.style.visibility='hidden'">
+      <span style="flex:1;min-width:0"><b>${esc(it.title)}</b>
+        <span class="mono" style="font-size:11px;color:var(--violet)"> S${it.season} · ${fmtDate(it.date)}</span><br>
+        <span class="chip">${esc(it.platform)}</span><br>
+        <span style="font-size:11px;color:var(--dim)">${esc(it.blurb)}…</span></span>
+      ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
+            :`<button class="btn hot" data-discadd="${it.id}" style="flex-shrink:0">+ Add</button>`}
+    </div>`;
+  }
+  if(discCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Refreshed ${agoLabel(discCache.ts)} · original-platform matches only</div>`;
+  return h;
+}
+
+
+function render(){
+  /* stats */
+  let eps=0,mins=0,done=0,watching=0,backlog=0;
+  db.forEach(s=>{ const w=wCount(s); eps+=w; mins+=w*(s.runtime||40);
+    const a=airedTotal(s); backlog+=Math.max(0,a-w);
+    if(a>0&&w>=a&&!s.upcoming) done++; else if(w>0) watching++; });
+  $("stats").innerHTML=db.length? `
+    <span><b>${eps}</b> watched</span><span><b>&#8776;${Math.round(mins/60)}</b> hrs</span>
+    <span><b style="color:var(--cyan)">${backlog}</b> aired &amp; unseen</span>
+    <span><b style="color:var(--text)">${watching}</b> watching</span>
+    <span><b style="color:var(--text)">${done}</b> done</span>`:"";
+
+  /* stale warning */
+  const stale=db.some(s=>(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
+  if(!syncing) $("statusLine").textContent = stale? "\u26A0 Air dates 3+ days old — hit Sync all before trusting the calendar.":"";
+
+  const nagDue = db.length>0 && !ghToken
+    && Date.now()-(+store("signal.lastexport")||0) > 30*864e5
+    && Date.now() > (+store("signal.nagsnooze")||0);
+  $("backupNag").innerHTML = nagDue? `<div style="display:flex;align-items:center;gap:10px;border:1px solid rgba(227,107,107,.4);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--dim)">
+    <span style="flex:1">No sync, no recent backup — one browser-data clear loses everything.</span>
+    <button class="btn hot" id="nagExport">Export</button><button class="btn" id="nagLater">Later</button></div>`:"";
+  $("view").innerHTML = tab==="calendar"? renderCalendar(): tab==="discover"? renderDiscover(): renderShows();
+  bindView();
+  if(nagDue){ $("nagExport").onclick=()=>{ exportDb(); render(); }; $("nagLater").onclick=()=>{ store("signal.nagsnooze",String(Date.now()+7*864e5)); render(); }; }
+}
+
+function catOf(sh){
+  if(sh.upcoming) return "waiting";
+  if(airedTotal(sh)-wCount(sh)>0) return "watching";
+  return (sh.inProduction||sh.tmdbStatus==="Returning Series")? "waiting":"done";
+}
+
+function renderShows(){
+  if(!db.length) return `<div style="border:1px solid var(--line);border-radius:12px;padding:20px 16px">
+    <div class="sect mono" style="color:var(--amber)">WELCOME TO SIGNAL</div>
+    <div style="font-size:13px;color:var(--dim);line-height:1.7">
+    1. Type any web series above and hit Search — Hindi, Korean, English, anything.<br>
+    2. Tap episode cells to mark watched. Dashed cells haven't aired yet — they're locked so you can't mis-mark.<br>
+    3. <b style="color:var(--text)">WATCHING</b> = shows with episodes waiting for you. <b style="color:var(--text)">WAITING</b> = caught up or not premiered. <b style="color:var(--text)">DONE</b> = finished.<br>
+    4. CALENDAR shows what airs today (in Indian time). DISCOVER finds premieres on your platforms — pick them in ⚙.<br>
+    5. Using a laptop too? ⚙ → Connect sync. One phone only? ⚙ → Export backup monthly.</div></div>`;
+  const counts={watching:0,waiting:0,done:0};
+  db.forEach(s=>counts[catOf(s)]++);
+  const list=db.filter(s=>catOf(s)===libTab);
+  let h=`<div style="margin-bottom:14px">`+
+    ["watching","waiting","done"].map(t=>
+      `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${t.toUpperCase()}${counts[t]?" ("+counts[t]+")":""}</button>`
+    ).join("")+`</div>`;
+  if(libTab==="watching"){
+    const upNext=list.map(s=>({s,n:nextUnwatched(s)})).filter(x=>x.n&&wCount(x.s)>0).slice(0,6);
+    if(upNext.length){
+      h+=`<section style="margin-bottom:24px"><div class="sect mono">UP NEXT</div>`;
+      for(const {s,n} of upNext) h+=`
+        <div style="display:flex;align-items:center;gap:12px;background:var(--cardup);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+          <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.title)}</div>
+          <div class="mono" style="font-size:11px;color:var(--cyan)">S${pad(n.s)}E${pad(n.e)}${n.name? " · "+esc(n.name):""}${s.watchOn&&s.watchOn[0]? " · "+esc(s.watchOn[0]):""}</div></div>
+          <button class="btn hot" data-next="${s.id}">Watched &#10003;</button></div>`;
+      h+=`</section>`;
+    }
+  }
+  if(!list.length){
+    const msgs={
+      watching:"Nothing in progress. Shows appear here when they have aired episodes you haven't watched.",
+      waiting:"Nothing on the waitlist. Caught-up on-air shows and unreleased premieres live here.",
+      done:"No finished shows yet."};
+    return h+`<div class="empty">${msgs[libTab]}</div>`;
+  }
+  h+=`<div class="sect mono">${libTab.toUpperCase()} — ${list.length} SHOW${list.length===1?"":"S"}</div>`;
+  for(const sh of list){
+    const a=airedTotal(sh), t=totalEps(sh), w=wCount(sh);
+    const pct=a?Math.round(w/a*100):0;
+    const isOpen=openId===sh.id, complete=a>0&&w>=a&&!sh.upcoming;
+    const status=sh.upcoming?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
+      :(sh.inProduction||sh.tmdbStatus==="Returning Series")?["ON AIR","var(--cyan)"]:["ENDED","var(--faint)"];
+    h+=`<div class="card" ${isOpen?'style="border-color:var(--faint)"':""}>
+      <button class="cardhead" data-open="${sh.id}">
+        <div style="display:flex;gap:12px">
+          ${sh.poster?`<img class="poster" src="${sh.poster}" alt="" loading="lazy" onerror="this.style.display='none'">`:""}
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+              <div style="font-weight:800;font-size:16px">${esc(sh.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${sh.year||""}</span></div>
+              <span class="mono" style="font-size:10px;letter-spacing:.1em;color:${status[1]};flex-shrink:0">${status[0]}</span>
+            </div>`;
+    if(sh.upcoming){
+      h+=`<div class="mono" style="font-size:11px;color:var(--violet);margin:4px 0 2px">Premieres ${sh.firstAir?fmtDate(sh.firstAir):"— TBA"}${sh.watchOn&&sh.watchOn.length?" on "+esc(sh.watchOn.join(", ")):""}</div>`;
+    } else {
+      h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} aired · ${pct}%${t>a?` · ${t-a} unaired`:""}</div>`;
+      if(sh.nextEp&&sh.nextEp.date) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:4px">Next: S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} — ${fmtDate(sh.nextEp.date)}${sh.nextEp.ts? " · "+fmtTime(sh.nextEp.ts):""}</div>`;
+      if(sh.watchOn&&sh.watchOn.length) h+=`<div style="margin:2px 0 8px">${sh.watchOn.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>`;
+      h+=`<div class="bar"><div style="width:${pct}%"></div></div>`;
+    }
+    h+=`</div></div></button>`;
+    if(isOpen){
+      h+=`<div style="padding:2px 14px 14px;border-top:1px solid var(--line)">`;
+      if(sh.upcoming){
+        h+=`<div style="font-size:13px;color:var(--dim);padding:12px 0">No aired episodes yet. After the premiere, hit Sync to unlock the grid.</div>`;
+      } else {
+        for(const seas of sh.seasons){
+          const airedIn=seas.eps.filter(ep=>aired(sh,ep)).length;
+          const onIn=seas.eps.filter(ep=>sh.watched[epK(seas.season,ep.e)]).length;
+          const allOn=airedIn>0&&seas.eps.every(ep=>!aired(sh,ep)||sh.watched[epK(seas.season,ep.e)]);
+          h+=`<div style="margin:12px 0">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.08em">SEASON ${seas.season} · ${onIn}/${airedIn} aired</span>
+              <button class="btn" data-season="${sh.id}:${seas.season}:${allOn?0:1}" ${airedIn?"":"disabled"}>${allOn?"Clear season":"Mark aired"}</button>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">`;
+          for(const ep of seas.eps){
+            const on=!!sh.watched[epK(seas.season,ep.e)], ok=aired(sh,ep);
+            h+=`<button class="cell${on?" on":""}${ok?"":" locked"}" ${ok?"":"disabled"}
+              data-ep="${sh.id}:${seas.season}:${ep.e}"
+              title="S${pad(seas.season)}E${pad(ep.e)}${ep.name?" · "+esc(ep.name):""}${ok?(epDate(ep)?" · aired "+epDate(ep):""):" — airs "+(epDate(ep)||"TBA")+(ep.ts?" "+fmtTime(ep.ts):"")}"
+              aria-label="Season ${seas.season} episode ${ep.e}, ${ok?(on?"watched":"not watched"):"not aired yet"}"></button>`;
+          }
+          h+=`</div></div>`;
+        }
+      }
+      h+=`<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
+        <button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
+      if(!sh.upcoming) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
+      if(!sh.upcoming) h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
+      h+= confirmDel===sh.id
+        ? `<button class="btn warn" data-delyes="${sh.id}">Yes, remove</button><button class="btn" data-delno="1">Keep it</button>`
+        : `<button class="btn warn" data-del="${sh.id}">Remove</button>`;
+      h+=`<span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div></div>`;
+    }
+    h+=`</div>`;
+  }
+  return h;
+}
+
+function renderCalendar(){
+  const today=todayISO();
+  const airToday=[], comingUp=[], premieres=[], backlogL=[];
+  for(const sh of db){
+    if(sh.upcoming){ premieres.push(sh);
+      if(sh.firstAir===today) airToday.push({sh,label:"PREMIERE"}); continue; }
+    // scan real per-episode air dates
+    for(const s of sh.seasons) for(const ep of s.eps){
+      if(epDate(ep)===today) airToday.push({sh,label:`S${pad(s.season)}E${pad(ep.e)}`+(ep.ts? " · "+fmtTime(ep.ts):"")});
+    }
+    if(sh.nextEp&&sh.nextEp.date&&daysAway(sh.nextEp.date)>0)
+      comingUp.push({sh,label:`S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)}`,date:sh.nextEp.date,n:daysAway(sh.nextEp.date)});
+    const b=airedTotal(sh)-wCount(sh); if(b>0) backlogL.push({sh,count:b});
+  }
+  comingUp.sort((a,b)=>a.n-b.n);
+  premieres.sort((a,b)=>((a.firstAir||"9999")<(b.firstAir||"9999")?-1:1));
+  backlogL.sort((a,b)=>b.count-a.count);
+  let h=`<section style="margin-bottom:24px">
+    <div class="sect mono" style="color:var(--amber)">TODAY · ${new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"})}</div>`;
+  h+= airToday.length? airToday.map(({sh,label})=>`
+    <div style="display:flex;align-items:center;gap:10px;background:var(--cardup);border:1px solid var(--amberdim);border-radius:10px;padding:11px 13px;margin-bottom:8px">
+      <div style="flex:1"><div style="font-weight:800;font-size:14px">${esc(sh.title)}</div>
+      <div class="mono" style="font-size:11px;color:var(--amber)">${label}${sh.watchOn&&sh.watchOn.length?" · on "+esc(sh.watchOn.join(", ")):""}</div></div></div>`).join("")
+    : `<div class="empty" style="padding:16px 14px;text-align:left">Nothing airs today (per last sync).</div>`;
+  h+=`</section><section style="margin-bottom:24px"><div class="sect mono">COMING UP</div>`;
+  h+= comingUp.length? comingUp.map(({sh,label,date})=>`
+    <div class="row"><div><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
+      <span class="mono" style="font-size:11px;color:var(--cyan);margin-left:8px">${label}</span></div>
+      <span class="mono" style="font-size:11px;color:var(--dim)">${fmtDate(date)}${(sh.nextEp&&sh.nextEp.ts)? " · "+fmtTime(sh.nextEp.ts):""}</span></div>`).join("")
+    : `<div style="color:var(--faint);font-size:13px">No scheduled episodes on record. Sync to refresh.</div>`;
+  h+=`</section>`;
+  if(premieres.length){
+    h+=`<section style="margin-bottom:24px"><div class="sect mono" style="color:var(--violet)">PREMIERES — SHOWS YOU'RE WAITING FOR</div>`;
+    h+=premieres.map(s=>`
+      <div class="row"><div><span style="font-weight:700;font-size:14px">${esc(s.title)}</span>
+        ${s.watchOn&&s.watchOn.length?`<span class="mono" style="font-size:11px;color:var(--dim);margin-left:8px">${esc(s.watchOn.join(", "))}</span>`:""}</div>
+        <span class="mono" style="font-size:11px;color:var(--violet)">${s.firstAir?fmtDate(s.firstAir):"date TBA"}</span></div>`).join("");
+    h+=`</section>`;
+  }
+  h+=`<section><div class="sect mono">BACKLOG — AIRED, NOT YET WATCHED</div>`;
+  h+= backlogL.length? backlogL.map(({sh,count})=>`
+    <div class="row"><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
+      <span class="mono" style="font-size:11px;color:var(--cyan)">${count} ep${count>1?"s":""} waiting</span></div>`).join("")
+    : `<div style="color:var(--faint);font-size:13px">You're fully caught up. Rare.</div>`;
+  h+=`</section>`;
+  return h;
+}
+
+function bindView(){
+  document.querySelectorAll("[data-lib]").forEach(b=>b.onclick=()=>{ libTab=b.dataset.lib; openId=null; render(); });
+  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ openId=openId===+b.dataset.open?null:+b.dataset.open; confirmDel=null; render(); });
+  document.querySelectorAll("[data-ep]").forEach(b=>b.onclick=()=>{ const [id,s,e]=b.dataset.ep.split(":").map(Number); toggleEp(id,s,e); });
+  document.querySelectorAll("[data-season]").forEach(b=>b.onclick=()=>{ const [id,s,on]=b.dataset.season.split(":").map(Number); markSeason(id,s,!!on); });
+  document.querySelectorAll("[data-next]").forEach(b=>b.onclick=()=>markNext(+b.dataset.next));
+  document.querySelectorAll("[data-catchup]").forEach(b=>b.onclick=()=>catchUp(+b.dataset.catchup));
+  document.querySelectorAll("[data-unlock]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.unlock); sh.unlockAll=!sh.unlockAll; touch(sh); save(); render(); toast(sh.unlockAll?"All cells unlocked for this show — you're on manual control.":"Air-date locking restored."); });
+  document.querySelectorAll("[data-sync]").forEach(b=>b.onclick=()=>syncShow(+b.dataset.sync));
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ confirmDel=+b.dataset.del; render(); });
+  document.querySelectorAll("[data-delyes]").forEach(b=>b.onclick=()=>removeShow(+b.dataset.delyes));
+  document.querySelectorAll("[data-delno]").forEach(b=>b.onclick=()=>{ confirmDel=null; render(); });
+  document.querySelectorAll("[data-discadd]").forEach(b=>b.onclick=()=>{ b.disabled=true; b.textContent="…"; addShow(+b.dataset.discadd); });
+  document.querySelectorAll("[data-discrefresh]").forEach(b=>b.onclick=()=>fetchDiscover(true));
+}
+
+/* ================= wiring ================= */
+function renderPlatformBoxes(){
+  $("platformBoxes").innerHTML=PLATFORMS.map(p=>{
+    const on=myPlatforms.includes(p.id);
+    return `<button class="btn${on?" hot":""}" data-plat="${p.id}">${p.label}</button>`;
+  }).join("");
+  document.querySelectorAll("[data-plat]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.plat;
+    myPlatforms = myPlatforms.includes(id)? myPlatforms.filter(x=>x!==id): [...myPlatforms,id];
+    store("signal.platforms", JSON.stringify(myPlatforms));
+    discCache=null; store("signal.discover","null"); // platform change invalidates cache
+    renderPlatformBoxes();
+    if(tab==="discover") fetchDiscover(true);
+  });
+}
+renderPlatformBoxes();
+function showSettings(){ $("settingsPanel").classList.toggle("hidden"); }
+$("settingsBtn").onclick=()=>showSettings();
+$("exportBtn").onclick=exportDb;
+$("importBtn").onclick=()=>$("importFile").click();
+$("importFile").onchange=(e)=>{ if(e.target.files[0]) importDb(e.target.files[0]); e.target.value=""; };
+$("addBtn").onclick=doSearch;
+$("q").addEventListener("keydown",e=>{ if(e.key==="Enter") doSearch(); });
+$("syncAllBtn").onclick=syncAll;
+function setTab(t){
+  tab=t;
+  $("tabShows").classList.toggle("act",t==="shows");
+  $("tabCal").classList.toggle("act",t==="calendar");
+  $("tabDisc").classList.toggle("act",t==="discover");
+  if(t==="discover") fetchDiscover(false); else render();
+}
+$("tabShows").onclick=()=>setTab("shows");
+$("tabCal").onclick=()=>setTab("calendar");
+$("tabDisc").onclick=()=>setTab("discover");
+window.addEventListener("online",()=>toast("Back online."));
+window.addEventListener("offline",()=>toast("Offline — your saved data is safe, updates paused."));
+
+/* online-only build: remove any previously installed service worker so updates apply instantly */
+if("serviceWorker" in navigator){ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{}); }
+
+/* cloud sync wiring */
+$("saveTokenBtn").onclick=()=>{ ghToken=$("tokenInput").value.trim(); store("signal.token",ghToken);
+  if(ghToken){ toast("Sync connected — pulling…"); pullCloud(false).then(()=>schedulePush()); $("settingsPanel").classList.add("hidden"); }
+  updateCloudBadge(); };
+$("clearTokenBtn").onclick=()=>{ ghToken=""; gistId=""; store("signal.token",""); store("signal.gistid",""); $("tokenInput").value=""; toast("Sync disconnected. Data stays on this device."); updateCloudBadge(); };
+$("pullNowBtn").onclick=()=>pullCloud(false);
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible") pullCloud(true);
+  else if(pushTimer) pushCloud(); // flush pending changes when leaving
+});
+
+render();
+updateCloudBadge();
+
+/* startup: pull cloud first so merges land before air-date refresh */
+(async function init(){
+  await pullCloud(true);
+  if(!navigator.onLine) return;
+  const STALE = 12*3600*1000;
+  const targets = db.filter(s=>(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series")
+                            && (!s.lastSynced || Date.now()-s.lastSynced>STALE));
+  if(!targets.length) return;
+  syncing=true;
+  $("statusLine").textContent=`Updating ${targets.length} show${targets.length>1?"s":""}…`;
+  for(let i=0;i<targets.length;i++){
+    try{
+      const fresh=await fetchFullShow(targets[i].id, targets[i].watched);
+      Object.assign(targets[i], fresh); touch(targets[i]); save(); render();
+      $("statusLine").textContent=`Updating ${i+1}/${targets.length}…`;
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,600)); // stay under TVmaze rate limits
+  }
+  syncing=false; $("statusLine").textContent=""; render();
+})();
+</script>
+</body>
+</html>
