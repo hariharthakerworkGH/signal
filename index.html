@@ -57,6 +57,20 @@
             border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:8px;
             cursor:pointer; width:100%; text-align:left; color:var(--text); font-family:inherit; }
   .result img { width:42px; height:63px; border-radius:6px; object-fit:cover; background:#101120; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(102px,1fr)); gap:12px 10px; }
+  .tile { background:none; border:none; padding:0; cursor:pointer; text-align:left; font-family:inherit; color:var(--text); }
+  .tile .pwrap { position:relative; border-radius:10px; overflow:hidden; background:#101120; aspect-ratio:2/3; border:1px solid var(--line); }
+  .tile img { width:100%; height:100%; object-fit:cover; display:block; position:relative; z-index:1; }
+  .tile .fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:26px; color:var(--faint); }
+  .tile .dot { z-index:2; }
+  .tile .dot { position:absolute; top:6px; left:6px; width:9px; height:9px; border-radius:50%; box-shadow:0 0 0 2px rgba(0,0,0,.5); }
+  .tile .count { z-index:2; }
+  .tile .count { position:absolute; top:5px; right:5px; background:rgba(0,0,0,.72); color:var(--amber); font-size:10px; font-weight:700; border-radius:5px; padding:2px 5px; }
+  .tile .pbar { z-index:2; }
+  .tile .pbar { position:absolute; bottom:0; left:0; right:0; height:4px; background:rgba(0,0,0,.55); }
+  .tile .pbar > div { height:100%; background:var(--amber); }
+  .tile .tname { font-size:11px; color:var(--text); margin-top:5px; line-height:1.3; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+  .tile .tsub { display:block; font-size:10px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .stats { display:flex; gap:16px; font-size:11px; color:var(--dim); flex-wrap:wrap;
            border-top:1px solid var(--line); border-bottom:1px solid var(--line);
            padding:10px 2px; margin:12px 0 4px; }
@@ -103,6 +117,8 @@
     <div id="platformBoxes" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" id="exportBtn">Export backup</button>
+      <button class="btn" id="ttImportBtn">Import from TV Time</button>
+      <input type="file" id="ttFile" accept=".csv" class="hidden">
       <button class="btn" id="importBtn">Import backup</button>
       <input type="file" id="importFile" accept=".json" class="hidden">
     </div>
@@ -124,11 +140,11 @@
 
   <nav style="margin:6px 0 18px">
     <button class="tab act" id="tabShows">SHOWS</button>
-    <button class="tab" id="tabCal">CALENDAR</button>
     <button class="tab" id="tabDisc">DISCOVER</button>
   </nav>
 
   <main id="view"></main>
+  <div class="mono" style="text-align:center;font-size:10px;color:var(--faint);margin-top:36px">Data from <a href="https://www.tvmaze.com" style="color:var(--faint)">TVmaze</a></div>
 </div>
 
 <div class="toast hidden" id="toast"></div>
@@ -224,6 +240,8 @@ function updateCloudBadge(){
   el.textContent = ghToken? (pushTimer?"☁ saving…":"☁ synced "+agoLabel(lastCloud)) : "";
 }
 let tab = "shows", libTab = "watching", openId = null, confirmDel = null, syncing = false;
+let viewMode = store("signal.view")||"grid";
+let schedOpen = false;
 
 function toast(t, ms=2600){ const el=$("toast"); el.textContent=t; el.classList.remove("hidden"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.add("hidden"),ms); }
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -363,7 +381,7 @@ function toggleEp(id,s,e){
   const k=epK(s,e);
   if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=1;
   const after=catOf(sh);
-  if(before!==after) toast(`${sh.title} moved to ${after.toUpperCase()}.`);
+  if(before!==after) toast(`${sh.title} moved to ${LABEL[after]}.`);
   touch(sh); save(); render();
 }
 let undoState=null;
@@ -392,7 +410,7 @@ function catchUp(id){
   sh.watched={};
   for(const s of sh.seasons) for(const ep of s.eps) if(aired(sh,ep)) sh.watched[epK(s.season,ep.e)]=1;
   touch(sh); save(); render();
-  toastUndo(`Caught up — moved to ${catOf(sh).toUpperCase()}.`);
+  toastUndo(`Caught up — moved to ${LABEL[catOf(sh)]}.`);
 }
 function markNext(id){ const sh=db.find(x=>x.id===id); const n=nextUnwatched(sh); if(n) toggleEp(id,n.s,n.e); }
 function removeShow(id){ db=db.filter(s=>s.id!==id); delMap[id]=Date.now(); confirmDel=null; if(openId===id) openId=null; save(); render(); }
@@ -434,31 +452,29 @@ function platformMatch(channelName){
 
 async function fetchDiscover(force){
   if(discLoading) return;
-  if(!force && discCache && Date.now()-discCache.ts<12*3600*1000){ render(); return; }
+  if(!force && discCache && Date.now()-discCache.ts<24*3600*1000){ render(); return; }
   if(!navigator.onLine){ toast("Offline — Discover needs internet."); return; }
   if(!myPlatforms.length){ render(); return; }
   discLoading=true; render();
   const found={};
   try{
-    for(let d=0; d<7; d++){
-      const dt=new Date(); dt.setDate(dt.getDate()+d);
-      const iso=dt.getFullYear()+"-"+pad(dt.getMonth()+1)+"-"+pad(dt.getDate());
-      let items=[];
-      try{ items=await maze("/schedule/web?date="+iso); }catch(e){}
-      for(const ep of items||[]){
-        if(ep.number!==1) continue;                       // premieres only (new show or new season)
-        const show=ep._embedded&&ep._embedded.show; if(!show) continue;
-        const hits=platformMatch(show.webChannel&&show.webChannel.name);
-        if(!hits.length) continue;
-        if(!found[show.id]) found[show.id]={
-          id:show.id, title:show.name,
-          poster:(show.image&&show.image.medium)||null,
-          date:ep.airdate||iso, season:ep.season,
-          platform:hits[0].label,
-          blurb:(show.summary||"").replace(/<[^>]+>/g,"").slice(0,90)
-        };
-      }
-      await new Promise(r=>setTimeout(r,350));
+    const all=await maze("/schedule/full"); // one call: every future episode TVmaze knows (server-cached 24h)
+    const limit=new Date(); limit.setDate(limit.getDate()+60);
+    const limISO=limit.getFullYear()+"-"+pad(limit.getMonth()+1)+"-"+pad(limit.getDate());
+    const today=todayISO();
+    for(const ep of all||[]){
+      if(ep.number!==1) continue;                        // premieres only (new show or new season)
+      const show=(ep._embedded&&ep._embedded.show)||ep.show; if(!show) continue;
+      const d= ep.airstamp? localDate(ep.airstamp): (ep.airdate||null);
+      if(!d||d<today||d>limISO) continue;                // next 60 days only
+      const hits=platformMatch(show.webChannel&&show.webChannel.name);
+      if(!hits.length) continue;
+      if(!found[show.id]||d<found[show.id].date) found[show.id]={
+        id:show.id, title:show.name,
+        poster:(show.image&&show.image.medium)||null,
+        date:d, season:ep.season,
+        platform:hits[0].label
+      };
     }
     discCache={ts:Date.now(), items:Object.values(found).sort((a,b)=>a.date<b.date?-1:1)};
     store("signal.discover", JSON.stringify(discCache));
@@ -470,25 +486,24 @@ function renderDiscover(){
   if(!myPlatforms.length)
     return `<div class="empty">Pick your subscriptions first — open settings (⚙) and tick Netflix, Prime, JioHotstar etc. Discover will list new premieres on them.</div>`;
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div class="sect mono" style="margin:0">PREMIERES · NEXT 7 DAYS · ${myPlatforms.map(id=>PLATFORMS.find(p=>p.id===id).label).join(" / ")}</div>
+    <div class="sect mono" style="margin:0">PREMIERES · NEXT 60 DAYS · ${myPlatforms.map(id=>PLATFORMS.find(p=>p.id===id).label).join(" / ")}</div>
     <button class="btn" data-discrefresh="1" ${discLoading?"disabled":""}>${discLoading?"…":"⟳"}</button></div>`;
-  if(discLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Scanning the schedule…</div>`;
+  if(discLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Downloading the full schedule (a few MB, once a day)…</div>`;
   const items=(discCache&&discCache.items)||[];
   if(!items.length&&!discLoading)
-    return h+`<div class="empty">No premieres found on your platforms in the next 7 days. Only shows whose home platform matches count — licensed imports won't appear.</div>`;
+    return h+`<div class="empty">No premieres found on your platforms in the next 60 days. Only shows whose home platform matches count — licensed imports won't appear.</div>`;
   for(const it of items){
     const have=db.some(s=>s.id===it.id);
     h+=`<div class="result" style="cursor:default">
       <img src="${it.poster||''}" alt="" onerror="this.style.visibility='hidden'">
       <span style="flex:1;min-width:0"><b>${esc(it.title)}</b>
         <span class="mono" style="font-size:11px;color:var(--violet)"> S${it.season} · ${fmtDate(it.date)}</span><br>
-        <span class="chip">${esc(it.platform)}</span><br>
-        <span style="font-size:11px;color:var(--dim)">${esc(it.blurb)}…</span></span>
+        <span class="chip">${esc(it.platform)}</span></span>
       ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
             :`<button class="btn hot" data-discadd="${it.id}" style="flex-shrink:0">+ Add</button>`}
     </div>`;
   }
-  if(discCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Refreshed ${agoLabel(discCache.ts)} · original-platform matches only</div>`;
+  if(discCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Refreshed ${agoLabel(discCache.ts)} · original-platform matches only · listings thin out beyond ~a month, platforms announce late</div>`;
   return h;
 }
 
@@ -499,15 +514,16 @@ function render(){
   db.forEach(s=>{ const w=wCount(s); eps+=w; mins+=w*(s.runtime||40);
     const a=airedTotal(s); backlog+=Math.max(0,a-w);
     if(a>0&&w>=a&&!s.upcoming) done++; else if(w>0) watching++; });
+  let todayCount=0; const _t=todayISO();
+  db.forEach(sh=>{ if(sh.upcoming){ if(sh.firstAir===_t) todayCount++; return; }
+    for(const se of sh.seasons) for(const ep of se.eps) if(epDate(ep)===_t){ todayCount++; return; } });
   $("stats").innerHTML=db.length? `
-    <span><b>${eps}</b> watched</span><span><b>&#8776;${Math.round(mins/60)}</b> hrs</span>
-    <span><b style="color:var(--cyan)">${backlog}</b> aired &amp; unseen</span>
-    <span><b style="color:var(--text)">${watching}</b> watching</span>
-    <span><b style="color:var(--text)">${done}</b> done</span>`:"";
+    <span><b>${backlog}</b> waiting for you</span>
+    <span><b style="color:var(--text)">${todayCount}</b> airing today</span>`:"";
 
   /* stale warning */
   const stale=db.some(s=>(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
-  if(!syncing) $("statusLine").textContent = stale? "\u26A0 Air dates 3+ days old — hit Sync all before trusting the calendar.":"";
+  if(!syncing&&!cloudBusy) $("statusLine").textContent = stale? "\u26A0 Air dates 3+ days old — hit Sync all to refresh.":"";
 
   const nagDue = db.length>0 && !ghToken
     && Date.now()-(+store("signal.lastexport")||0) > 30*864e5
@@ -515,11 +531,24 @@ function render(){
   $("backupNag").innerHTML = nagDue? `<div style="display:flex;align-items:center;gap:10px;border:1px solid rgba(227,107,107,.4);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--dim)">
     <span style="flex:1">No sync, no recent backup — one browser-data clear loses everything.</span>
     <button class="btn hot" id="nagExport">Export</button><button class="btn" id="nagLater">Later</button></div>`:"";
-  $("view").innerHTML = tab==="calendar"? renderCalendar(): tab==="discover"? renderDiscover(): renderShows();
+  $("view").innerHTML = tab==="discover"? renderDiscover(): renderShows();
   bindView();
   if(nagDue){ $("nagExport").onclick=()=>{ exportDb(); render(); }; $("nagLater").onclick=()=>{ store("signal.nagsnooze",String(Date.now()+7*864e5)); render(); }; }
 }
 
+const LABEL={watching:"WATCHING",waiting:"UP TO DATE",done:"DONE"};
+function soonInfo(sh){ // {ms, label} if next episode/premiere is scheduled, else null
+  const now=Date.now();
+  let ts=null, dateStr=null, tag="";
+  if(sh.upcoming){ dateStr=sh.firstAir; tag="PREMIERE"; }
+  else if(sh.nextEp){ ts=sh.nextEp.ts; dateStr=sh.nextEp.date; tag="S"+pad(sh.nextEp.s)+"E"+pad(sh.nextEp.e); }
+  if(!ts&&!dateStr) return null;
+  const ms = ts? new Date(ts).getTime() : new Date(dateStr+"T00:00:00").getTime();
+  if(ms<now-3600e3) return null; // already past
+  const n=daysAway(dateStr||localDate(ts));
+  let label = n<=0? (ts? fmtTime(ts):"Today") : n===1? "Tom" : (n<=99? n+"d": "");
+  return label? {ms, label, tag, dateStr, ts} : null;
+}
 function catOf(sh){
   if(sh.upcoming) return "waiting";
   if(airedTotal(sh)-wCount(sh)>0) return "watching";
@@ -527,22 +556,44 @@ function catOf(sh){
 }
 
 function renderShows(){
-  if(!db.length) return `<div style="border:1px solid var(--line);border-radius:12px;padding:20px 16px">
+  if(!db.length) return `<div style="border:1px solid var(--line);border-radius:12px;padding:22px 16px;text-align:center">
     <div class="sect mono" style="color:var(--amber)">WELCOME TO SIGNAL</div>
-    <div style="font-size:13px;color:var(--dim);line-height:1.7">
-    1. Type any web series above and hit Search — Hindi, Korean, English, anything.<br>
-    2. Tap episode cells to mark watched. Dashed cells haven't aired yet — they're locked so you can't mis-mark.<br>
-    3. <b style="color:var(--text)">WATCHING</b> = shows with episodes waiting for you. <b style="color:var(--text)">WAITING</b> = caught up or not premiered. <b style="color:var(--text)">DONE</b> = finished.<br>
-    4. CALENDAR shows what airs today (in Indian time). DISCOVER finds premieres on your platforms — pick them in ⚙.<br>
-    5. Using a laptop too? ⚙ → Connect sync. One phone only? ⚙ → Export backup monthly.</div></div>`;
+    <div style="font-size:13px;color:var(--dim);line-height:1.7">Search any series above — Hindi, Korean, English, anything.<br>Tap cells to mark watched; dashed cells haven't aired yet.</div></div>`;
   const counts={watching:0,waiting:0,done:0};
   db.forEach(s=>counts[catOf(s)]++);
   const list=db.filter(s=>catOf(s)===libTab);
   let h=`<div style="margin-bottom:14px">`+
     ["watching","waiting","done"].map(t=>
-      `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${t.toUpperCase()}${counts[t]?" ("+counts[t]+")":""}</button>`
+      `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${LABEL[t]}${counts[t]?" ("+counts[t]+")":""}</button>`
     ).join("")+`</div>`;
   if(libTab==="watching"){
+    const soon=db.map(sh=>({sh,si:soonInfo(sh)}))
+      .filter(x=>x.si&&x.si.ms-Date.now()<=48*3600e3)
+      .sort((a,b)=>a.si.ms-b.si.ms).slice(0,3);
+    if(soon.length){
+      h+=`<section style="margin-bottom:20px"><div class="sect mono" style="color:var(--cyan)">AIRING SOON</div>`;
+      for(const {sh,si} of soon) h+=`
+        <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding:8px 2px">
+          <div style="min-width:0"><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
+          <span class="mono" style="font-size:11px;color:var(--cyan);margin-left:8px">${si.tag}</span></div>
+          <span class="mono" style="font-size:11px;color:var(--dim);flex-shrink:0">${fmtDate(si.dateStr||localDate(si.ts))}${si.ts?" · "+fmtTime(si.ts):""}</span>
+        </div>`;
+      h+=`</section>`;
+    }
+    const allSched=db.map(sh=>({sh,si:soonInfo(sh)})).filter(x=>x.si).sort((a,b)=>a.si.ms-b.si.ms);
+    if(allSched.length){
+      h+=`<div style="margin:0 0 20px"><button class="btn" data-schedtoggle="1">${schedOpen?"Hide full schedule":"Full schedule ("+allSched.length+") \u25BE"}</button></div>`;
+      if(schedOpen){
+        h+=`<section style="margin:-6px 0 22px">`;
+        for(const {sh,si} of allSched) h+=`
+          <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding:8px 2px">
+            <div style="min-width:0"><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
+            <span class="mono" style="font-size:11px;color:${si.tag==="PREMIERE"?"var(--violet)":"var(--cyan)"};margin-left:8px">${si.tag}</span></div>
+            <span class="mono" style="font-size:11px;color:var(--dim);flex-shrink:0">${fmtDate(si.dateStr||localDate(si.ts))}${si.ts?" · "+fmtTime(si.ts):""}</span>
+          </div>`;
+        h+=`</section>`;
+      }
+    }
     const upNext=list.map(s=>({s,n:nextUnwatched(s)})).filter(x=>x.n&&wCount(x.s)>0).slice(0,6);
     if(upNext.length){
       h+=`<section style="margin-bottom:24px"><div class="sect mono">UP NEXT</div>`;
@@ -557,12 +608,50 @@ function renderShows(){
   if(!list.length){
     const msgs={
       watching:"Nothing in progress. Shows appear here when they have aired episodes you haven't watched.",
-      waiting:"Nothing on the waitlist. Caught-up on-air shows and unreleased premieres live here.",
+      waiting:"Nothing here yet. Shows you're fully current on — and premieres you're waiting for — live here.",
       done:"No finished shows yet."};
     return h+`<div class="empty">${msgs[libTab]}</div>`;
   }
-  h+=`<div class="sect mono">${libTab.toUpperCase()} — ${list.length} SHOW${list.length===1?"":"S"}</div>`;
-  for(const sh of list){
+  const isWaitingTab = libTab==="waiting";
+  if(isWaitingTab){
+    list.sort((a,b)=>{ const x=soonInfo(a),y=soonInfo(b);
+      return (x?x.ms:Infinity)-(y?y.ms:Infinity); });
+  }
+  const effView = isWaitingTab? "list" : viewMode;
+  const opened = list.find(x=>x.id===openId);
+  h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="sect mono" style="margin:0">${LABEL[libTab]} — ${list.length}</div>
+    ${isWaitingTab?"":`<button class="btn" data-viewtoggle="1">${viewMode==="grid"?"List view":"Grid view"}</button>`}</div>`;
+  if(effView==="grid"&&!opened){
+    h+=`<div class="grid">`;
+    for(const sh of list){
+      const a2=airedTotal(sh), w2=wCount(sh);
+      const pct2=a2?Math.round(w2/a2*100):0, wait=Math.max(0,a2-w2);
+      const dot= sh.upcoming? "var(--violet)": (a2>0&&w2>=a2)? "var(--amber)": (sh.inProduction||sh.tmdbStatus==="Returning Series")? "var(--cyan)":"var(--faint)";
+      const cat2=catOf(sh);
+      let sub="", subColor="var(--dim)";
+      if(cat2==="watching"){ const n=nextUnwatched(sh);
+        if(n){ sub=`S${pad(n.s)}E${pad(n.e)} · ${wait} left`; subColor="var(--cyan)"; } }
+      else if(sh.upcoming){ sub= sh.firstAir? "Premieres "+fmtDate(sh.firstAir): "Date TBA"; subColor="var(--violet)"; }
+      else if(cat2==="waiting"){ const si=soonInfo(sh);
+        sub= (si&&sh.nextEp)? `S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} · ${fmtDate(si.dateStr||localDate(si.ts))}`: "Awaiting schedule"; }
+      h+=`<button class="tile" data-open="${sh.id}">
+        <span class="pwrap">${sh.poster?`<img src="${sh.poster}" alt="" loading="lazy" onerror="this.remove()">`:""}<span class="fallback">${esc((sh.title||"?").slice(0,1).toUpperCase())}</span>
+          <span class="dot" style="background:${dot}"></span>
+          ${!sh.upcoming?`<span class="pbar"><span style="display:block;height:100%;width:${pct2}%;background:var(--amber)"></span></span>`:""}
+        </span>
+        <span class="tname">${esc(sh.title)}</span>
+        ${sub?`<span class="tsub mono" style="color:${subColor}">${sub}</span>`:""}
+      </button>`;
+    }
+    h+=`</div>`;
+    return h;
+  }
+  if(effView==="grid"&&opened){
+    h+=`<button class="btn" data-open="${opened.id}" style="margin-bottom:12px">&#8592; Back to grid</button>`;
+  }
+  const rows = (effView==="grid"&&opened)? [opened] : list;
+  for(const sh of rows){
     const a=airedTotal(sh), t=totalEps(sh), w=wCount(sh);
     const pct=a?Math.round(w/a*100):0;
     const isOpen=openId===sh.id, complete=a>0&&w>=a&&!sh.upcoming;
@@ -580,7 +669,7 @@ function renderShows(){
     if(sh.upcoming){
       h+=`<div class="mono" style="font-size:11px;color:var(--violet);margin:4px 0 2px">Premieres ${sh.firstAir?fmtDate(sh.firstAir):"— TBA"}${sh.watchOn&&sh.watchOn.length?" on "+esc(sh.watchOn.join(", ")):""}</div>`;
     } else {
-      h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} aired · ${pct}%${t>a?` · ${t-a} unaired`:""}</div>`;
+      h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} aired · ${pct}%</div>`;
       if(sh.nextEp&&sh.nextEp.date) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:4px">Next: S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} — ${fmtDate(sh.nextEp.date)}${sh.nextEp.ts? " · "+fmtTime(sh.nextEp.ts):""}</div>`;
       if(sh.watchOn&&sh.watchOn.length) h+=`<div style="margin:2px 0 8px">${sh.watchOn.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>`;
       h+=`<div class="bar"><div style="width:${pct}%"></div></div>`;
@@ -625,56 +714,11 @@ function renderShows(){
   return h;
 }
 
-function renderCalendar(){
-  const today=todayISO();
-  const airToday=[], comingUp=[], premieres=[], backlogL=[];
-  for(const sh of db){
-    if(sh.upcoming){ premieres.push(sh);
-      if(sh.firstAir===today) airToday.push({sh,label:"PREMIERE"}); continue; }
-    // scan real per-episode air dates
-    for(const s of sh.seasons) for(const ep of s.eps){
-      if(epDate(ep)===today) airToday.push({sh,label:`S${pad(s.season)}E${pad(ep.e)}`+(ep.ts? " · "+fmtTime(ep.ts):"")});
-    }
-    if(sh.nextEp&&sh.nextEp.date&&daysAway(sh.nextEp.date)>0)
-      comingUp.push({sh,label:`S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)}`,date:sh.nextEp.date,n:daysAway(sh.nextEp.date)});
-    const b=airedTotal(sh)-wCount(sh); if(b>0) backlogL.push({sh,count:b});
-  }
-  comingUp.sort((a,b)=>a.n-b.n);
-  premieres.sort((a,b)=>((a.firstAir||"9999")<(b.firstAir||"9999")?-1:1));
-  backlogL.sort((a,b)=>b.count-a.count);
-  let h=`<section style="margin-bottom:24px">
-    <div class="sect mono" style="color:var(--amber)">TODAY · ${new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short"})}</div>`;
-  h+= airToday.length? airToday.map(({sh,label})=>`
-    <div style="display:flex;align-items:center;gap:10px;background:var(--cardup);border:1px solid var(--amberdim);border-radius:10px;padding:11px 13px;margin-bottom:8px">
-      <div style="flex:1"><div style="font-weight:800;font-size:14px">${esc(sh.title)}</div>
-      <div class="mono" style="font-size:11px;color:var(--amber)">${label}${sh.watchOn&&sh.watchOn.length?" · on "+esc(sh.watchOn.join(", ")):""}</div></div></div>`).join("")
-    : `<div class="empty" style="padding:16px 14px;text-align:left">Nothing airs today (per last sync).</div>`;
-  h+=`</section><section style="margin-bottom:24px"><div class="sect mono">COMING UP</div>`;
-  h+= comingUp.length? comingUp.map(({sh,label,date})=>`
-    <div class="row"><div><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
-      <span class="mono" style="font-size:11px;color:var(--cyan);margin-left:8px">${label}</span></div>
-      <span class="mono" style="font-size:11px;color:var(--dim)">${fmtDate(date)}${(sh.nextEp&&sh.nextEp.ts)? " · "+fmtTime(sh.nextEp.ts):""}</span></div>`).join("")
-    : `<div style="color:var(--faint);font-size:13px">No scheduled episodes on record. Sync to refresh.</div>`;
-  h+=`</section>`;
-  if(premieres.length){
-    h+=`<section style="margin-bottom:24px"><div class="sect mono" style="color:var(--violet)">PREMIERES — SHOWS YOU'RE WAITING FOR</div>`;
-    h+=premieres.map(s=>`
-      <div class="row"><div><span style="font-weight:700;font-size:14px">${esc(s.title)}</span>
-        ${s.watchOn&&s.watchOn.length?`<span class="mono" style="font-size:11px;color:var(--dim);margin-left:8px">${esc(s.watchOn.join(", "))}</span>`:""}</div>
-        <span class="mono" style="font-size:11px;color:var(--violet)">${s.firstAir?fmtDate(s.firstAir):"date TBA"}</span></div>`).join("");
-    h+=`</section>`;
-  }
-  h+=`<section><div class="sect mono">BACKLOG — AIRED, NOT YET WATCHED</div>`;
-  h+= backlogL.length? backlogL.map(({sh,count})=>`
-    <div class="row"><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
-      <span class="mono" style="font-size:11px;color:var(--cyan)">${count} ep${count>1?"s":""} waiting</span></div>`).join("")
-    : `<div style="color:var(--faint);font-size:13px">You're fully caught up. Rare.</div>`;
-  h+=`</section>`;
-  return h;
-}
 
 function bindView(){
   document.querySelectorAll("[data-lib]").forEach(b=>b.onclick=()=>{ libTab=b.dataset.lib; openId=null; render(); });
+  document.querySelectorAll("[data-viewtoggle]").forEach(b=>b.onclick=()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); });
+  document.querySelectorAll("[data-schedtoggle]").forEach(b=>b.onclick=()=>{ schedOpen=!schedOpen; render(); });
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ openId=openId===+b.dataset.open?null:+b.dataset.open; confirmDel=null; render(); });
   document.querySelectorAll("[data-ep]").forEach(b=>b.onclick=()=>{ const [id,s,e]=b.dataset.ep.split(":").map(Number); toggleEp(id,s,e); });
   document.querySelectorAll("[data-season]").forEach(b=>b.onclick=()=>{ const [id,s,on]=b.dataset.season.split(":").map(Number); markSeason(id,s,!!on); });
@@ -687,6 +731,156 @@ function bindView(){
   document.querySelectorAll("[data-delno]").forEach(b=>b.onclick=()=>{ confirmDel=null; render(); });
   document.querySelectorAll("[data-discadd]").forEach(b=>b.onclick=()=>{ b.disabled=true; b.textContent="…"; addShow(+b.dataset.discadd); });
   document.querySelectorAll("[data-discrefresh]").forEach(b=>b.onclick=()=>fetchDiscover(true));
+}
+
+/* ================= TV Time importer ================= */
+function parseCSV(text){
+  const rows=[]; let row=[], field="", inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inQ=true;
+      else if(c===","){ row.push(field); field=""; }
+      else if(c==="\n"){ row.push(field); rows.push(row); row=[]; field=""; }
+      else if(c!=="\r") field+=c;
+    }
+  }
+  if(field||row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+let ttCancel=false;
+function ttOverlay(html){
+  let el=$("ttOverlay");
+  if(!el){ el=document.createElement("div"); el.id="ttOverlay";
+    el.style.cssText="position:fixed;inset:0;background:rgba(10,11,18,.96);z-index:50;overflow:auto;padding:24px 16px";
+    document.body.appendChild(el); }
+  el.innerHTML='<div style="max-width:640px;margin:0 auto">'+html+"</div>";
+  return el;
+}
+function ttClose(){ const el=$("ttOverlay"); if(el) el.remove(); render(); }
+
+function ttParseFile(text){
+  const rows=parseCSV(text);
+  const head=rows[0]; const ix={}; head.forEach((h,i)=>ix[h]=i);
+  const need=["series_name","season_number","ep_no","s_id","created_at"];
+  for(const n of need) if(!(n in ix)) return null;
+  const shows={};
+  for(let r=1;r<rows.length;r++){
+    const row=rows[r]; if(!row||row.length<head.length-2) continue;
+    const name=row[ix.series_name], sn=row[ix.season_number], en=row[ix.ep_no];
+    if(!name||!sn||!en) continue;
+    if(ix.is_special!==undefined && (row[ix.is_special]==="1")) continue;
+    const key=name;
+    if(!shows[key]) shows[key]={name, sid:row[ix.s_id]||null, eps:{}, last:""};
+    shows[key].eps[sn+"-"+en]=1;
+    const d=row[ix.created_at]||"";
+    if(d>shows[key].last) shows[key].last=d;
+  }
+  return Object.values(shows).sort((a,b)=> a.last<b.last?1:-1);
+}
+
+function ttPicker(items){
+  const cutoff24=new Date(Date.now()-24*30.44*864e5).toISOString().slice(0,10);
+  items.forEach(it=>it.sel = it.last>=cutoff24);
+  function draw(){
+    const selN=items.filter(x=>x.sel).length;
+    const est=Math.ceil(selN*2*0.7/60);
+    let h='<div class="sect mono" style="color:var(--amber)">TV TIME IMPORT — PICK SHOWS</div>';
+    h+='<div style="font-size:12px;color:var(--dim);margin-bottom:10px">'+items.length+" shows found. Recent ones are pre-selected. Your zip file remains the full archive — import only what you will actively track. Watch dates are not carried over.</div>";
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+      +'<button class="btn" data-tt="since24">Since 2024</button>'
+      +'<button class="btn" data-tt="since22">Since 2022</button>'
+      +'<button class="btn" data-tt="all">All</button>'
+      +'<button class="btn" data-tt="none">None</button></div>';
+    h+='<div style="max-height:50vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-bottom:12px">';
+    items.forEach((it,i)=>{
+      h+='<label style="display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px">'
+        +'<input type="checkbox" data-ttrow="'+i+'" '+(it.sel?"checked":"")+'>'
+        +'<span style="flex:1;min-width:0">'+esc(it.name)+'</span>'
+        +'<span class="mono" style="font-size:10px;color:var(--faint)">'+Object.keys(it.eps).length+" eps · "+(it.last.slice(0,4)||"?")+"</span></label>";
+    });
+    h+="</div>";
+    if(selN>150) h+='<div style="font-size:12px;color:var(--red);margin-bottom:10px">'+selN+" shows selected — import will take ~"+est+" min and will make cloud sync noticeably heavier.</div>";
+    h+='<div style="display:flex;gap:8px"><button class="btn hot" data-tt="go">Import '+selN+" shows (~"+est+" min)</button>"
+      +'<button class="btn" data-tt="close">Cancel</button></div>';
+    const el=ttOverlay(h);
+    el.querySelectorAll("[data-ttrow]").forEach(cb=>cb.onchange=()=>{ items[+cb.dataset.ttrow].sel=cb.checked; draw(); });
+    el.querySelectorAll("[data-tt]").forEach(b=>b.onclick=()=>{
+      const a=b.dataset.tt;
+      if(a==="close") return ttClose();
+      if(a==="all") items.forEach(x=>x.sel=true);
+      if(a==="none") items.forEach(x=>x.sel=false);
+      if(a==="since24") items.forEach(x=>x.sel = x.last>="2024-01-01");
+      if(a==="since22") items.forEach(x=>x.sel = x.last>="2022-01-01");
+      if(a==="go") return ttRun(items.filter(x=>x.sel));
+      draw();
+    });
+  }
+  draw();
+}
+
+async function ttLookup(it){
+  if(it.sid){
+    try{
+      const r=await fetch(MAZE+"/lookup/shows?thetvdb="+encodeURIComponent(it.sid));
+      if(r.ok) return r.json();
+    }catch(e){}
+  }
+  try{
+    const r=await fetch(MAZE+"/singlesearch/shows?q="+encodeURIComponent(it.name));
+    if(r.ok) return r.json();
+  }catch(e){}
+  return null;
+}
+
+async function ttRun(sel){
+  ttCancel=false;
+  const skipped=[]; let added=0, merged=0;
+  for(let i=0;i<sel.length;i++){
+    if(ttCancel) break;
+    const it=sel[i];
+    const el=ttOverlay('<div class="sect mono" style="color:var(--amber)">IMPORTING — '+(i+1)+"/"+sel.length+"</div>"
+      +'<div style="font-size:14px;font-weight:700;margin-bottom:6px">'+esc(it.name)+"</div>"
+      +'<div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:14px">added '+added+" · merged "+merged+" · skipped "+skipped.length+"</div>"
+      +'<button class="btn warn" data-ttstop="1">Stop here</button>');
+    el.querySelector("[data-ttstop]").onclick=()=>{ ttCancel=true; };
+    try{
+      const found=await ttLookup(it);
+      if(!found||!found.id){ skipped.push({n:it.name, r:"not found on TVmaze"}); continue; }
+      await new Promise(r=>setTimeout(r,650));
+      let target=db.find(x=>x.id===found.id);
+      if(!target){
+        const full=await fetchFullShow(found.id);
+        touch(full); db.unshift(full); target=full; added++;
+      } else merged++;
+      let hit=0;
+      for(const seas of target.seasons) for(const ep of seas.eps){
+        if(it.eps[seas.season+"-"+ep.e] && epLive(ep)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
+      }
+      if(hit===0 && !db.find(x=>x.id===found.id && x!==target)){ /* imported but no episode matched (numbering mismatch) */
+        skipped.push({n:it.name, r:"added, but episode numbering did not match ("+Object.keys(it.eps).length+" records)"});
+      }
+      touch(target); saveLocal();
+    }catch(e){
+      if((e&&e.message)==="DAILY") skipped.push({n:it.name, r:"daily serial (150+ eps/season)"});
+      else skipped.push({n:it.name, r:"network error"});
+    }
+    await new Promise(r=>setTimeout(r,650));
+  }
+  save();
+  let h='<div class="sect mono" style="color:var(--amber)">IMPORT '+(ttCancel?"STOPPED":"COMPLETE")+"</div>"
+    +'<div style="font-size:13px;color:var(--dim);margin-bottom:12px">Added '+added+" shows · merged into "+merged+" existing · skipped "+skipped.length+".</div>";
+  if(skipped.length){
+    h+='<div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-bottom:12px">';
+    skipped.forEach(x=>{ h+='<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--line)">'+esc(x.n)+' <span class="mono" style="font-size:10px;color:var(--faint)">— '+esc(x.r)+"</span></div>"; });
+    h+="</div>";
+  }
+  h+='<button class="btn hot" data-ttdone="1">Done</button>';
+  const el=ttOverlay(h);
+  el.querySelector("[data-ttdone]").onclick=ttClose;
 }
 
 /* ================= wiring ================= */
@@ -708,6 +902,18 @@ renderPlatformBoxes();
 function showSettings(){ $("settingsPanel").classList.toggle("hidden"); }
 $("settingsBtn").onclick=()=>showSettings();
 $("exportBtn").onclick=exportDb;
+$("ttImportBtn").onclick=()=>$("ttFile").click();
+$("ttFile").onchange=(e)=>{
+  const f=e.target.files[0]; e.target.value="";
+  if(!f) return;
+  if(!navigator.onLine){ toast("Import needs internet."); return; }
+  const rd=new FileReader();
+  rd.onload=()=>{ const items=ttParseFile(rd.result);
+    if(!items) toast("Wrong file — use tracking-prod-records-v2.csv from the TV Time zip.");
+    else if(!items.length) toast("No watch records found in that file.");
+    else ttPicker(items); };
+  rd.readAsText(f);
+};
 $("importBtn").onclick=()=>$("importFile").click();
 $("importFile").onchange=(e)=>{ if(e.target.files[0]) importDb(e.target.files[0]); e.target.value=""; };
 $("addBtn").onclick=doSearch;
@@ -716,12 +922,10 @@ $("syncAllBtn").onclick=syncAll;
 function setTab(t){
   tab=t;
   $("tabShows").classList.toggle("act",t==="shows");
-  $("tabCal").classList.toggle("act",t==="calendar");
   $("tabDisc").classList.toggle("act",t==="discover");
   if(t==="discover") fetchDiscover(false); else render();
 }
 $("tabShows").onclick=()=>setTab("shows");
-$("tabCal").onclick=()=>setTab("calendar");
 $("tabDisc").onclick=()=>setTab("discover");
 window.addEventListener("online",()=>toast("Back online."));
 window.addEventListener("offline",()=>toast("Offline — your saved data is safe, updates paused."));
