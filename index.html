@@ -242,6 +242,7 @@ function updateCloudBadge(){
 let tab = "shows", libTab = "watching", openId = null, confirmDel = null, syncing = false;
 let viewMode = store("signal.view")||"grid";
 let schedOpen = false;
+let seasonToggle = {}; // "showId:season" -> true(open)/false(closed), overrides defaults
 
 function toast(t, ms=2600){ const el=$("toast"); el.textContent=t; el.classList.remove("hidden"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.add("hidden"),ms); }
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -379,9 +380,11 @@ function toggleEp(id,s,e){
   if(!aired(sh,ep)) return;
   const before=catOf(sh);
   const k=epK(s,e);
+  const marking=!sh.watched[k];
   if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=1;
   const after=catOf(sh);
-  if(before!==after) toast(`${sh.title} moved to ${LABEL[after]}.`);
+  const epLabel=`S${pad(s)}E${pad(e)}${ep.name? " · "+ep.name:""}`;
+  toast(`${epLabel} ${marking?"\u2713":"unmarked"}${before!==after? " — "+LABEL[after]:""}`);
   touch(sh); save(); render();
 }
 let undoState=null;
@@ -669,14 +672,26 @@ function renderShows(){
     if(sh.upcoming){
       h+=`<div class="mono" style="font-size:11px;color:var(--violet);margin:4px 0 2px">Premieres ${sh.firstAir?fmtDate(sh.firstAir):"— TBA"}${sh.watchOn&&sh.watchOn.length?" on "+esc(sh.watchOn.join(", ")):""}</div>`;
     } else {
-      h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} aired · ${pct}%</div>`;
+      h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} watched · ${pct}%</div>`;
       if(sh.nextEp&&sh.nextEp.date) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:4px">Next: S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} — ${fmtDate(sh.nextEp.date)}${sh.nextEp.ts? " · "+fmtTime(sh.nextEp.ts):""}</div>`;
       if(sh.watchOn&&sh.watchOn.length) h+=`<div style="margin:2px 0 8px">${sh.watchOn.map(p=>`<span class="chip">${esc(p)}</span>`).join("")}</div>`;
       h+=`<div class="bar"><div style="width:${pct}%"></div></div>`;
     }
     h+=`</div></div></button>`;
     if(isOpen){
-      h+=`<div style="padding:2px 14px 14px;border-top:1px solid var(--line)">`;
+      h+=`<div style="padding:12px 14px 14px;border-top:1px solid var(--line)">`;
+      // actions first — no scrolling to act
+      h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+        <button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
+      if(!sh.upcoming){
+        const complete2 = airedTotal(sh)>0 && wCount(sh)>=airedTotal(sh);
+        if(!complete2) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
+        h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
+      }
+      h+= confirmDel===sh.id
+        ? `<button class="btn warn" data-delyes="${sh.id}">Yes, remove</button><button class="btn" data-delno="1">Keep it</button>`
+        : `<button class="btn warn" data-del="${sh.id}">Remove</button>`;
+      h+=`<span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div>`;
       if(sh.upcoming){
         h+=`<div style="font-size:13px;color:var(--dim);padding:12px 0">No aired episodes yet. After the premiere, hit Sync to unlock the grid.</div>`;
       } else {
@@ -684,12 +699,24 @@ function renderShows(){
           const airedIn=seas.eps.filter(ep=>aired(sh,ep)).length;
           const onIn=seas.eps.filter(ep=>sh.watched[epK(seas.season,ep.e)]).length;
           const allOn=airedIn>0&&seas.eps.every(ep=>!aired(sh,ep)||sh.watched[epK(seas.season,ep.e)]);
+          const skey=sh.id+":"+seas.season;
+          const defaultOpen = airedIn>0 && onIn<airedIn;                 // only seasons with pending episodes open
+          const isOpenSeason = (skey in seasonToggle)? seasonToggle[skey] : defaultOpen;
+          if(!isOpenSeason){
+            const note = airedIn===0? "not aired yet" : (onIn>=airedIn? onIn+"/"+airedIn+" \u2713" : onIn+"/"+airedIn);
+            h+=`<button data-sexp="${skey}" style="display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:none;border-bottom:1px solid var(--line);padding:10px 0;cursor:pointer;font-family:inherit">
+              <span class="mono" style="font-size:11px;color:var(--faint);letter-spacing:.08em">SEASON ${seas.season} · ${note}</span>
+              <span class="mono" style="font-size:11px;color:var(--faint)">\u25BE</span></button>`;
+            continue;
+          }
           h+=`<div style="margin:12px 0">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.08em">SEASON ${seas.season} · ${onIn}/${airedIn} aired</span>
+              <button data-sexp="${skey}" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit"><span class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.08em">SEASON ${seas.season} · ${onIn}/${airedIn} watched \u25B4</span></button>
               <button class="btn" data-season="${sh.id}:${seas.season}:${allOn?0:1}" ${airedIn?"":"disabled"}>${allOn?"Clear season":"Mark aired"}</button>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px">`;
+            </div>`;
+          const nextIn=seas.eps.find(ep=>aired(sh,ep)&&!sh.watched[epK(seas.season,ep.e)]);
+          if(nextIn&&nextIn.name) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin:0 0 6px">Next: E${pad(nextIn.e)} · ${esc(nextIn.name)}</div>`;
+          h+=`<div style="display:flex;flex-wrap:wrap;gap:6px">`;
           for(const ep of seas.eps){
             const on=!!sh.watched[epK(seas.season,ep.e)], ok=aired(sh,ep);
             h+=`<button class="cell${on?" on":""}${ok?"":" locked"}" ${ok?"":"disabled"}
@@ -700,14 +727,7 @@ function renderShows(){
           h+=`</div></div>`;
         }
       }
-      h+=`<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
-        <button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
-      if(!sh.upcoming) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
-      if(!sh.upcoming) h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
-      h+= confirmDel===sh.id
-        ? `<button class="btn warn" data-delyes="${sh.id}">Yes, remove</button><button class="btn" data-delno="1">Keep it</button>`
-        : `<button class="btn warn" data-del="${sh.id}">Remove</button>`;
-      h+=`<span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div></div>`;
+      h+=`</div>`;
     }
     h+=`</div>`;
   }
@@ -719,7 +739,15 @@ function bindView(){
   document.querySelectorAll("[data-lib]").forEach(b=>b.onclick=()=>{ libTab=b.dataset.lib; openId=null; render(); });
   document.querySelectorAll("[data-viewtoggle]").forEach(b=>b.onclick=()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); });
   document.querySelectorAll("[data-schedtoggle]").forEach(b=>b.onclick=()=>{ schedOpen=!schedOpen; render(); });
-  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ openId=openId===+b.dataset.open?null:+b.dataset.open; confirmDel=null; render(); });
+  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const opening = openId!==+b.dataset.open; openId=opening? +b.dataset.open : null; confirmDel=null; render(); if(opening) window.scrollTo({top:0}); });
+  document.querySelectorAll("[data-sexp]").forEach(b=>b.onclick=(ev)=>{ ev.stopPropagation(); const k=b.dataset.sexp;
+    const sid=+k.split(":")[0]; const sh=db.find(x=>x.id===sid);
+    const sn=+k.split(":")[1]; const seas=sh.seasons.find(x=>x.season===sn);
+    const airedIn=seas.eps.filter(ep=>aired(sh,ep)).length;
+    const onIn=seas.eps.filter(ep=>sh.watched[epK(sn,ep.e)]).length;
+    const defaultOpen = airedIn>0 && onIn<airedIn;
+    const cur=(k in seasonToggle)? seasonToggle[k] : defaultOpen;
+    seasonToggle[k]=!cur; render(); });
   document.querySelectorAll("[data-ep]").forEach(b=>b.onclick=()=>{ const [id,s,e]=b.dataset.ep.split(":").map(Number); toggleEp(id,s,e); });
   document.querySelectorAll("[data-season]").forEach(b=>b.onclick=()=>{ const [id,s,on]=b.dataset.season.split(":").map(Number); markSeason(id,s,!!on); });
   document.querySelectorAll("[data-next]").forEach(b=>b.onclick=()=>markNext(+b.dataset.next));
