@@ -396,7 +396,7 @@ function toggleEp(id,s,e){
   if(!aired(sh,ep)) return;
   const k=epK(s,e);
   const epLabel=`S${pad(s)}E${pad(e)}${ep.name? " · "+ep.name:""}`;
-  if(sh.dlTrack && markMode[sh.id]==="dl"){
+  if(dlOn(sh) && markMode[sh.id]==="dl"){
     sh.dl=sh.dl||{};
     const on=!sh.dl[k];
     if(on) sh.dl[k]=1; else delete sh.dl[k];
@@ -405,8 +405,8 @@ function toggleEp(id,s,e){
   }
   const before=catOf(sh);
   const marking=!sh.watched[k];
-  if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=1;
-  if(marking && sh.dlTrack && !(sh.dl&&sh.dl[k])) dlPrompt={id:sh.id, s, e};
+  if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=Date.now(); // timestamp = fresh watch
+  if(marking && dlOn(sh) && !(sh.dl&&sh.dl[k])) dlPrompt={id:sh.id, s, e};
   else if(dlPrompt&&dlPrompt.id===sh.id) dlPrompt=null;
   const after=catOf(sh);
   toast(`${epLabel} ${marking?"\u2713":"unmarked"}${before!==after? " — "+LABEL[after]:""}`);
@@ -426,7 +426,7 @@ function toastUndo(t){
 }
 function markSeason(id,s,on){
   const sh=db.find(x=>x.id===id); const seas=sh.seasons.find(x=>x.season===s);
-  if(sh.dlTrack && markMode[sh.id]==="dl"){
+  if(dlOn(sh) && markMode[sh.id]==="dl"){
     sh.dl=sh.dl||{};
     for(const ep of seas.eps){ const k=epK(s,ep.e);
       if(on && sh.watched[k]) sh.dl[k]=1; if(!on) delete sh.dl[k]; }
@@ -671,9 +671,10 @@ function renderShows(){
         </div>`;
       h+=`</section>`;
     }
-    const dlPend=db.filter(x=>x.dlTrack).map(x=>{
+    const isFresh=(v)=>typeof v==="number"&&v>1; // legacy/bulk marks are 1 — exempt
+    const dlPend=db.filter(dlOn).map(x=>{
       let n=0; for(const se of x.seasons) for(const ep of se.eps){ const k=epK(se.season,ep.e);
-        if(x.watched[k]&&!(x.dl&&x.dl[k])) n++; }
+        if(isFresh(x.watched[k])&&!(x.dl&&x.dl[k])) n++; }
       return {sh:x,n};
     }).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
     const mvPend=movies.filter(m=>m.dlWant&&!m.dl);
@@ -685,7 +686,7 @@ function renderShows(){
         for(const {sh,n} of dlPend){
           const pend=[];
           for(const se of sh.seasons) for(const ep of se.eps){ const k=epK(se.season,ep.e);
-            if(sh.watched[k]&&!(sh.dl&&sh.dl[k])) pend.push({s:se.season,e:ep.e}); }
+            if(isFresh(sh.watched[k])&&!(sh.dl&&sh.dl[k])) pend.push({s:se.season,e:ep.e}); }
           const CAP=12;
           const showAll=!!dlShowAll[sh.id];
           const vis= showAll? pend : pend.slice(0,CAP);
@@ -804,7 +805,7 @@ function renderShows(){
         const complete2 = airedTotal(sh)>0 && wCount(sh)>=airedTotal(sh);
         if(!complete2) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
         h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
-        h+=`<button class="btn" data-dltrack="${sh.id}">\uD83D\uDCE5 ${sh.dlTrack?"Download reminders: on":"Download reminders"}</button>`;
+        h+=`<button class="btn" data-dltrack="${sh.id}">\uD83D\uDCE5 Download reminders: ${dlOn(sh)?"on":"off"}</button>`;
         const cat3=catOf(sh);
         if(cat3==="waiting") h+=`<button class="btn" data-bucket="${sh.id}:done">Move to Done</button>`;
         else if(cat3==="done") h+=`<button class="btn" data-bucket="${sh.id}:active">Move to Up to date</button>`;
@@ -817,7 +818,7 @@ function renderShows(){
       h+=`<a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
         <a class="btn" style="text-decoration:none" href="${imdbUrl}" target="_blank" rel="noopener">IMDb</a>
         <span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div>`;
-      if(sh.dlTrack&&!sh.upcoming){
+      if(dlOn(sh)&&!sh.upcoming){
         const mm=markMode[sh.id]||"watch";
         h+=`<div style="display:flex;gap:8px;align-items:center;margin:8px 0 2px">
           <span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">MARK AS</span>
@@ -852,7 +853,7 @@ function renderShows(){
           h+=`<div style="display:flex;flex-wrap:wrap;gap:6px">`;
           for(const ep of seas.eps){
             const on=!!sh.watched[epK(seas.season,ep.e)], ok=aired(sh,ep);
-            const dl=sh.dlTrack&&sh.dl&&sh.dl[epK(seas.season,ep.e)];
+            const dl=dlOn(sh)&&sh.dl&&sh.dl[epK(seas.season,ep.e)];
             h+=`<button class="cell${on?" on":""}${dl?" dl":""}${ok?"":" locked"}" ${ok?"":"disabled"}
               data-ep="${sh.id}:${seas.season}:${ep.e}"
               title="S${pad(seas.season)}E${pad(ep.e)}${ep.name?" · "+esc(ep.name):""}${ok?(epDate(ep)?" · aired "+epDate(ep):""):" — airs "+(epDate(ep)||"TBA")+(ep.ts?" "+fmtTime(ep.ts):"")}"
@@ -886,7 +887,7 @@ function bindView(){
   document.querySelectorAll("[data-dlall]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.dlall);
     sh.dl=sh.dl||{}; let n=0;
     for(const se of sh.seasons) for(const ep of se.eps){ const k=epK(se.season,ep.e);
-      if(sh.watched[k]&&!sh.dl[k]){ sh.dl[k]=1; n++; } }
+      if(typeof sh.watched[k]==="number"&&sh.watched[k]>1&&!sh.dl[k]){ sh.dl[k]=1; n++; } }
     touch(sh); save(); render(); toast(`${sh.title} — ${n} episode${n>1?"s":""} marked downloaded.`); });
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const opening = openId!==+b.dataset.open; openId=opening? +b.dataset.open : null; confirmDel=null; render(); if(opening && viewMode==="grid" && libTab!=="waiting") window.scrollTo({top:0}); });
   document.querySelectorAll("[data-sexp]").forEach(b=>b.onclick=(ev)=>{ ev.stopPropagation(); const k=b.dataset.sexp;
@@ -902,8 +903,8 @@ function bindView(){
   document.querySelectorAll("[data-next]").forEach(b=>b.onclick=()=>markNext(+b.dataset.next));
   document.querySelectorAll("[data-catchup]").forEach(b=>b.onclick=()=>catchUp(+b.dataset.catchup));
   document.querySelectorAll("[data-dltrack]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.dltrack);
-    sh.dlTrack=!sh.dlTrack; if(sh.dlTrack&&!markMode[sh.id]) markMode[sh.id]="dl"; touch(sh); save(); render();
-    toast(sh.dlTrack? "Download reminders on — watched episodes now appear in Pending downloads until you mark them downloaded.":"Download reminders off (marks kept)."); });
+    sh.dlTrack = dlOn(sh)? false : true; touch(sh); save(); render();
+    toast(dlOn(sh)? "Download reminders on — new watches will ask about downloading.":"Download reminders off for this show (marks kept)."); });
   document.querySelectorAll("[data-mm]").forEach(b=>b.onclick=()=>{ const [id,mode]=b.dataset.mm.split(":"); markMode[+id]=mode; render(); });
   document.querySelectorAll("[data-bucket]").forEach(b=>b.onclick=()=>{ const [id,mode]=b.dataset.bucket.split(":"); const sh=db.find(x=>x.id===+id);
     sh.bucketOverride=mode; touch(sh); save(); render(); toast(`${sh.title} — filed under ${mode==="done"?"DONE":"UP TO DATE"}.`); });
@@ -938,6 +939,7 @@ async function wdDetails(qid){
   if(p2047) run=Math.round(Math.abs(parseFloat(p2047)));
   return {rel, run};
 }
+function dlOn(sh){ return sh.dlTrack!==false; } // default ON; explicit false = opted out
 function movieById(id){ return movies.find(m=>m.id===id); }
 function addMovieFromWd(hit, det){
   const m={ id:"mv-"+hit.id, title:hit.label, year: det.rel? +det.rel.slice(0,4): null,
