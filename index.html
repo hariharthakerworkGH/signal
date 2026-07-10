@@ -115,6 +115,8 @@
       <button class="btn" id="exportBtn">Export backup</button>
       <button class="btn" id="ttImportBtn">Import from TV Time</button>
       <input type="file" id="ttFile" accept=".csv" class="hidden">
+      <button class="btn" id="mvImportBtn">Import TV Time movies</button>
+      <input type="file" id="mvFile" accept=".csv" class="hidden">
       <button class="btn" id="importBtn">Import backup</button>
       <input type="file" id="importFile" accept=".json" class="hidden">
     </div>
@@ -137,6 +139,7 @@
 
   <nav style="margin:6px 0 18px">
     <button class="tab act" id="tabShows">SHOWS</button>
+    <button class="tab" id="tabMov">MOVIES</button>
     <button class="tab" id="tabDisc">DISCOVER</button>
   </nav>
 
@@ -153,12 +156,13 @@ const todayISO = () => { const d=new Date(); return d.getFullYear()+"-"+String(d
 const pad = (n) => String(n).padStart(2,"0");
 function store(k,v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){ return null; } }
 let db = []; try { db = JSON.parse(store("signal.db")||"[]"); } catch(e){ db=[]; }
+let movies = []; try { movies = JSON.parse(store("signal.movies")||"[]"); } catch(e){ movies=[]; }
 let delMap = {}; try { delMap = JSON.parse(store("signal.del")||"{}"); } catch(e){ delMap={}; }
 let ghToken = store("signal.token")||"";
 let gistId = store("signal.gistid")||"";
 let pushTimer=null, cloudBusy=false, lastCloud=+store("signal.lastcloud")||0;
 
-function saveLocal(){ store("signal.db", JSON.stringify(db)); store("signal.del", JSON.stringify(delMap)); }
+function saveLocal(){ store("signal.db", JSON.stringify(db)); store("signal.del", JSON.stringify(delMap)); store("signal.movies", JSON.stringify(movies)); }
 function save(){ saveLocal(); schedulePush(); }
 function touch(sh){ sh.updatedAt=Date.now(); }
 
@@ -177,6 +181,14 @@ async function findGist(){
   const hit=(gists||[]).find(g=>g.files&&g.files[GIST_FILE]);
   if(hit){ gistId=hit.id; store("signal.gistid",gistId); return gistId; }
   return null;
+}
+function mergeMovies(remote){
+  const map={};
+  for(const m of remote) map[m.id]=m;
+  for(const m of movies) if(!map[m.id]||(m.updatedAt||0)>=(map[m.id].updatedAt||0)) map[m.id]=m;
+  const before=JSON.stringify(movies.map(m=>[m.id,m.updatedAt]));
+  movies=Object.values(map).filter(m=>!(delMap[m.id]&&delMap[m.id]>(m.updatedAt||0)));
+  return before!==JSON.stringify(movies.map(m=>[m.id,m.updatedAt]));
 }
 function mergeCloud(remoteShows, remoteDel){
   // union tombstones, per-id newest
@@ -206,8 +218,9 @@ async function pullCloud(quiet){
       if(content){
         const remote=JSON.parse(content);
         const changed=mergeCloud(remote.shows, remote.deleted);
+        const mChanged=mergeMovies(remote.movies||[]);
         saveLocal();
-        if(changed){ render(); if(!quiet) toast("Synced from cloud."); }
+        if(changed||mChanged){ render(); if(!quiet) toast("Synced from cloud."); }
       }
     }
     lastCloud=Date.now(); store("signal.lastcloud",String(lastCloud));
@@ -218,13 +231,13 @@ async function pushCloud(){
   if(!ghToken) return;
   clearTimeout(pushTimer); pushTimer=null;
   try{
-    const body=JSON.stringify({ files:{ [GIST_FILE]:{ content: JSON.stringify({v:1, ts:Date.now(), shows:db, deleted:delMap}) } } });
+    const body=JSON.stringify({ files:{ [GIST_FILE]:{ content: JSON.stringify({v:1, ts:Date.now(), shows:db, deleted:delMap, movies}) } } });
     let id=await findGist();
     if(id){ await gh("/gists/"+id,{method:"PATCH",body}); }
     else{
       const g=await gh("/gists",{method:"POST",
         body:JSON.stringify({description:"Signal tracker database (auto-managed)",public:false,
-          files:{[GIST_FILE]:{content:JSON.stringify({v:1,ts:Date.now(),shows:db,deleted:delMap})}}})});
+          files:{[GIST_FILE]:{content:JSON.stringify({v:1,ts:Date.now(),shows:db,deleted:delMap,movies})}}})});
       gistId=g.id; store("signal.gistid",gistId);
     }
     lastCloud=Date.now(); store("signal.lastcloud",String(lastCloud));
@@ -440,7 +453,7 @@ function removeShow(id){ db=db.filter(s=>s.id!==id); delMap[id]=Date.now(); conf
 
 /* ================= export / import ================= */
 function exportDb(){
-  const blob=new Blob([JSON.stringify({v:2,exported:new Date().toISOString(),shows:db},null,1)],{type:"application/json"});
+  const blob=new Blob([JSON.stringify({v:3,exported:new Date().toISOString(),shows:db,movies},null,1)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   a.download="signal-backup-"+todayISO()+".json"; a.click();
   store("signal.lastexport",String(Date.now()));
@@ -448,7 +461,9 @@ function exportDb(){
 function importDb(file){
   const r=new FileReader();
   r.onload=()=>{ try{ const j=JSON.parse(r.result);
-      if(Array.isArray(j.shows)){ db=j.shows; db.forEach(x=>touch(x)); save(); render(); toast(`Imported ${db.length} shows.`); }
+      if(Array.isArray(j.shows)){ db=j.shows; db.forEach(x=>touch(x));
+        if(Array.isArray(j.movies)){ movies=j.movies; movies.forEach(x=>x.updatedAt=Date.now()); }
+        save(); render(); toast(`Imported ${db.length} shows${Array.isArray(j.movies)? ", "+movies.length+" movies":""}.`); }
       else toast("Not a Signal backup file.");
     }catch(e){ toast("Import failed — invalid file."); } };
   r.readAsText(file);
@@ -553,6 +568,7 @@ function render(){
     statsCard=`<div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0;font-size:13px;color:var(--dim)">
       ${legacy? `<div style="margin-bottom:8px"><span style="color:var(--amber);font-weight:800">${legacy.eps.toLocaleString("en-IN")}</span> episodes in your TV Time history${sinceStr? ` · journey since <b style="color:var(--text)">${sinceStr}</b>`:""}</div>`:""}
       <div><span style="color:var(--amber);font-weight:800">${eps.toLocaleString("en-IN")}</span> episodes tracked in Signal · \u2248<b style="color:var(--text)">${Math.round(mins/60).toLocaleString("en-IN")}</b> hrs · ${watching} watching · ${done} finished</div>
+      ${movies.filter(m=>m.watched).length? `<div style="margin-top:6px"><span style="color:var(--amber);font-weight:800">${movies.filter(m=>m.watched).length}</span> movies watched</div>`:""}
       ${!legacy? `<div class="mono" style="font-size:10px;color:var(--faint);margin-top:8px">Run "Import from TV Time" once (you can cancel at the picker) to capture your lifetime count and start date.</div>`:""}
     </div>`;
   }
@@ -569,8 +585,9 @@ function render(){
   $("backupNag").innerHTML = nagDue? `<div style="display:flex;align-items:center;gap:10px;border:1px solid rgba(227,107,107,.4);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--dim)">
     <span style="flex:1">No sync, no recent backup — one browser-data clear loses everything.</span>
     <button class="btn hot" id="nagExport">Export</button><button class="btn" id="nagLater">Later</button></div>`:"";
-  $("view").innerHTML = tab==="discover"? renderDiscover(): renderShows();
+  $("view").innerHTML = tab==="discover"? renderDiscover(): tab==="movies"? renderMovies(): renderShows();
   bindView();
+  if(tab==="movies") bindMovies();
   if(nagDue){ $("nagExport").onclick=()=>{ exportDb(); render(); }; $("nagLater").onclick=()=>{ store("signal.nagsnooze",String(Date.now()+7*864e5)); render(); }; }
 }
 
@@ -659,8 +676,9 @@ function renderShows(){
         if(x.watched[k]&&!(x.dl&&x.dl[k])) n++; }
       return {sh:x,n};
     }).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
-    if(dlPend.length){
-      const totalPend=dlPend.reduce((a,x)=>a+x.n,0);
+    const mvPend=movies.filter(m=>m.dlWant&&!m.dl);
+    if(dlPend.length||mvPend.length){
+      const totalPend=dlPend.reduce((a,x)=>a+x.n,0)+mvPend.length;
       h+=`<div style="margin:0 0 14px"><button class="btn" data-dlexp="1">\uD83D\uDCE5 Pending downloads (${totalPend}) ${dlOpen?"\u25B4":"\u25BE"}</button></div>`;
       if(dlOpen){
         h+=`<section style="margin:-6px 0 22px">`;
@@ -680,6 +698,13 @@ function renderShows(){
             <div style="display:flex;flex-wrap:wrap;gap:6px">`;
           for(const pe of vis) h+=`<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.4);font-size:11px;padding:4px 8px" data-dlep="${sh.id}:${pe.s}:${pe.e}">S${pad(pe.s)}E${pad(pe.e)}</button>`;
           if(pend.length>CAP) h+=`<button class="btn" style="font-size:11px;padding:4px 8px" data-dlmore="${sh.id}">${showAll? "show less":"+"+(pend.length-CAP)+" more"}</button>`;
+          h+=`</div></div>`;
+        }
+        if(mvPend.length){
+          h+=`<div style="border-bottom:1px solid var(--line);padding:10px 2px">
+            <div style="font-weight:700;font-size:14px;margin-bottom:7px">Movies</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">`;
+          for(const m of mvPend) h+=`<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.4);font-size:11px;padding:4px 8px" data-mvpend="${m.id}">${esc(m.title.slice(0,24))}</button>`;
           h+=`</div></div>`;
         }
         h+=`</section>`;
@@ -855,6 +880,8 @@ function bindView(){
   document.querySelectorAll("[data-dlep]").forEach(b=>b.onclick=()=>{ const [id,ss,ee]=b.dataset.dlep.split(":").map(Number);
     const sh=db.find(x=>x.id===id); sh.dl=sh.dl||{}; sh.dl[epK(ss,ee)]=1;
     touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded \u2713`); });
+  document.querySelectorAll("[data-mvpend]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvpend);
+    m.dl=true; m.dlWant=false; m.updatedAt=Date.now(); save(); render(); toast(`${m.title} downloaded \u2713`); });
   document.querySelectorAll("[data-dlmore]").forEach(b=>b.onclick=()=>{ dlShowAll[+b.dataset.dlmore]=!dlShowAll[+b.dataset.dlmore]; render(); });
   document.querySelectorAll("[data-dlall]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.dlall);
     sh.dl=sh.dl||{}; let n=0;
@@ -887,6 +914,143 @@ function bindView(){
   document.querySelectorAll("[data-delno]").forEach(b=>b.onclick=()=>{ confirmDel=null; render(); });
   document.querySelectorAll("[data-discadd]").forEach(b=>b.onclick=()=>{ b.disabled=true; b.textContent="…"; addShow(+b.dataset.discadd); });
   document.querySelectorAll("[data-discrefresh]").forEach(b=>b.onclick=()=>fetchDiscover(true));
+}
+
+/* ================= movies: Wikidata search + tracking ================= */
+const WD="https://www.wikidata.org/w/api.php";
+let movTab = "watchlist"; // watchlist | watched
+let movFilter = "";
+let movBusy=false, movResults=[], movConfirmDel=null;
+
+async function wdSearch(q){
+  const u=WD+"?action=wbsearchentities&language=en&format=json&origin=*&limit=7&search="+encodeURIComponent(q);
+  const r=await fetch(u); if(!r.ok) throw new Error("wd");
+  return (await r.json()).search||[];
+}
+async function wdDetails(qid){
+  const u=WD+"?action=wbgetentities&props=claims&format=json&origin=*&ids="+qid;
+  const r=await fetch(u); if(!r.ok) throw new Error("wd");
+  const claims=((await r.json()).entities||{})[qid]?.claims||{};
+  let rel=null, run=null;
+  const p577=claims.P577&&claims.P577[0]?.mainsnak?.datavalue?.value?.time;
+  if(p577) rel=p577.slice(1,11); // +2026-08-15T.. -> 2026-08-15
+  const p2047=claims.P2047&&claims.P2047[0]?.mainsnak?.datavalue?.value?.amount;
+  if(p2047) run=Math.round(Math.abs(parseFloat(p2047)));
+  return {rel, run};
+}
+function movieById(id){ return movies.find(m=>m.id===id); }
+function addMovieFromWd(hit, det){
+  const m={ id:"mv-"+hit.id, title:hit.label, year: det.rel? +det.rel.slice(0,4): null,
+    releaseDate: det.rel||null, runtime: det.run||null,
+    watched:false, watchedAt:null, dlWant:false, dl:false,
+    addedAt:Date.now(), updatedAt:Date.now() };
+  movies.unshift(m); save();
+}
+function movDlCycle(m){
+  if(!m.dlWant&&!m.dl){ m.dlWant=true; toast(m.title+" — added to pending downloads."); }
+  else if(m.dlWant&&!m.dl){ m.dl=true; m.dlWant=false; toast(m.title+" downloaded \u2713"); }
+  else { m.dl=false; m.dlWant=false; toast(m.title+" — download marks cleared."); }
+  m.updatedAt=Date.now(); save(); render();
+}
+
+function renderMovies(){
+  let h=`<div style="display:flex;gap:8px;margin-bottom:10px">
+    <input id="mq" placeholder="Add a movie — search by title" value="" style="flex:1">
+    <button class="btn hot" id="mqBtn" ${movBusy?"disabled":""} style="padding:0 14px;font-size:13px;flex-shrink:0">${movBusy?"\u2026":"Search"}</button></div>`;
+  if(movResults.length){
+    for(const r of movResults) h+=`<button class="result" data-mvadd="${r.id}">
+      <span style="flex:1"><b>${esc(r.label)}</b><br><span style="font-size:11px;color:var(--dim)">${esc(r.description||"")}</span></span></button>`;
+    h+=`<div style="margin-bottom:12px"><button class="btn" data-mvclear="1">Clear results</button></div>`;
+  }
+  const soon=movies.filter(m=>m.releaseDate&&daysAway(m.releaseDate)>0).sort((a,b)=>a.releaseDate<b.releaseDate?-1:1).slice(0,4);
+  if(soon.length){
+    h+=`<div class="sect mono" style="color:var(--violet)">RELEASING SOON</div>`;
+    for(const m of soon) h+=`<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding:8px 2px;margin-bottom:2px">
+      <span style="font-weight:700;font-size:14px">${esc(m.title)}</span>
+      <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(m.releaseDate)}</span></div>`;
+    h+=`<div style="height:14px"></div>`;
+  }
+  const wl=movies.filter(m=>!m.watched), wd=movies.filter(m=>m.watched);
+  h+=`<div style="margin-bottom:10px">
+    <button class="tab${movTab==="watchlist"?" act":""}" data-movtab="watchlist" style="font-size:12px;margin-right:14px">WATCHLIST (${wl.length})</button>
+    <button class="tab${movTab==="watched"?" act":""}" data-movtab="watched" style="font-size:12px">WATCHED (${wd.length})</button></div>`;
+  h+=`<input id="mf" placeholder="Filter\u2026" value="${esc(movFilter)}" style="margin-bottom:12px">`;
+  let list=(movTab==="watchlist"? wl: wd);
+  if(movFilter) list=list.filter(m=>m.title.toLowerCase().includes(movFilter.toLowerCase()));
+  list=list.slice().sort((a,b)=> movTab==="watched"? ((b.watchedAt||"")<(a.watchedAt||"")?-1:1) : (b.addedAt||0)-(a.addedAt||0));
+  if(!list.length) h+=`<div class="empty">${movTab==="watchlist"?"Nothing on the watchlist. Search above, or import your TV Time movies from \u2699.":"No watched movies match."}</div>`;
+  const shown=list.slice(0,120);
+  for(const m of shown){
+    const rel=m.releaseDate? (daysAway(m.releaseDate)>0? fmtDate(m.releaseDate): (m.year||m.releaseDate.slice(0,4))): (m.year||"");
+    const dlIcon = m.dl? "\u2713 dl": m.dlWant? "\u23F3 dl": "\uD83D\uDCE5";
+    h+=`<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:8px 2px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${rel}</span></div>
+        ${m.watched&&m.watchedAt?`<div class="mono" style="font-size:10px;color:var(--faint)">watched ${m.watchedAt.slice(0,10)}</div>`:""}
+      </div>
+      <button class="btn" style="font-size:11px;padding:4px 8px;${m.dl?"color:var(--cyan);border-color:rgba(95,212,208,.5)":m.dlWant?"color:var(--amber)":""}" data-mvdl="${m.id}">${dlIcon}</button>
+      <button class="btn${m.watched?"":" hot"}" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">${m.watched?"Unwatch":"Watched"}</button>
+      ${movConfirmDel===m.id? `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdelyes="${m.id}">Sure?</button>`
+        : `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdel="${m.id}">\u2715</button>`}
+    </div>`;
+  }
+  if(list.length>shown.length) h+=`<div class="mono" style="font-size:11px;color:var(--faint);margin-top:10px">${list.length-shown.length} more — narrow with the filter.</div>`;
+  return h;
+}
+
+function bindMovies(){
+  const mq=$("mq"), mf=$("mf");
+  if(mq){ mq.onkeydown=async(e)=>{ if(e.key!=="Enter") return; await movSearch(mq.value); }; }
+  const mb=$("mqBtn"); if(mb) mb.onclick=async()=>{ await movSearch($("mq").value); };
+  if(mf){ mf.oninput=()=>{ movFilter=mf.value; const keep=mf.selectionStart; render(); const nf=$("mf"); if(nf){ nf.focus(); nf.setSelectionRange(keep,keep); } }; }
+  document.querySelectorAll("[data-mvadd]").forEach(b=>b.onclick=async()=>{
+    const hit=movResults.find(x=>x.id===b.dataset.mvadd); if(!hit) return;
+    if(movies.some(m=>m.id==="mv-"+hit.id)){ toast("Already in your movies."); return; }
+    b.disabled=true; b.querySelector("b").textContent=hit.label+" \u2026";
+    try{ const det=await wdDetails(hit.id); addMovieFromWd(hit,det); movResults=[]; render(); toast(`Added ${hit.label}.`); }
+    catch(e){ toast("Details fetch failed — try again."); b.disabled=false; render(); }
+  });
+  document.querySelectorAll("[data-mvclear]").forEach(b=>b.onclick=()=>{ movResults=[]; render(); });
+  document.querySelectorAll("[data-movtab]").forEach(b=>b.onclick=()=>{ movTab=b.dataset.movtab; movConfirmDel=null; render(); });
+  document.querySelectorAll("[data-mvw]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvw);
+    m.watched=!m.watched; m.watchedAt=m.watched? new Date().toISOString():null; m.updatedAt=Date.now(); save(); render();
+    toast(`${m.title} ${m.watched?"watched \u2713":"moved to watchlist"}${m.watched&&m.dlWant?"":""}`); });
+  document.querySelectorAll("[data-mvdl]").forEach(b=>b.onclick=()=>movDlCycle(movieById(b.dataset.mvdl)));
+  document.querySelectorAll("[data-mvdel]").forEach(b=>b.onclick=()=>{ movConfirmDel=b.dataset.mvdel; render(); });
+  document.querySelectorAll("[data-mvdelyes]").forEach(b=>b.onclick=()=>{ const id=b.dataset.mvdelyes;
+    movies=movies.filter(m=>m.id!==id); delMap[id]=Date.now(); movConfirmDel=null; save(); render(); });
+}
+async function movSearch(q){
+  q=(q||"").trim(); if(!q||movBusy) return;
+  if(!navigator.onLine){ toast("Movie search needs internet."); return; }
+  movBusy=true; render();
+  try{ movResults=await wdSearch(q); if(!movResults.length) toast(`No results for "${q}".`); }
+  catch(e){ toast("Search failed — check connection."); }
+  movBusy=false; render();
+}
+
+/* movie import from TV Time v1 tracking file */
+function mvParseFile(text){
+  const rows=parseCSV(text); const head=rows[0]; const ix={}; head.forEach((h,i)=>ix[h]=i);
+  if(!("entity_type" in ix)||!("series_name" in ix)) return null;
+  const nameCol=("movie_name" in ix)? ix.movie_name : ix.series_name;
+  const map={};
+  for(let r=1;r<rows.length;r++){
+    const row=rows[r]; if(!row||row.length<3) continue;
+    if((row[ix.entity_type]||"").trim()!=="movie") continue;
+    const name=(row[nameCol]||row[ix.series_name]||"").trim(); if(!name) continue;
+    const rel=(row[ix.release_date]||"").slice(0,10);
+    const year= /^\d{4}/.test(rel)&&rel.slice(0,4)!=="0001"? +rel.slice(0,4): null;
+    const key=(name+"|"+(year||"")).toLowerCase();
+    const type=row[ix.type]||"";
+    const when=(row[ix.created_at]||"").slice(0,10);
+    if(!map[key]) map[key]={ id:"mv-tt-"+key.replace(/[^a-z0-9]+/g,"-").slice(0,60),
+      title:name, year, releaseDate: year&&rel.slice(0,4)!=="0001"? rel:null, runtime:null,
+      watched:false, watchedAt:null, dlWant:false, dl:false, addedAt:Date.now(), updatedAt:Date.now() };
+    if(type==="watch"||type==="rewatch"){ map[key].watched=true;
+      if(!map[key].watchedAt||when>map[key].watchedAt.slice(0,10)) map[key].watchedAt=when? when+"T00:00:00Z":null; }
+  }
+  return Object.values(map);
 }
 
 /* ================= TV Time importer ================= */
@@ -1068,6 +1232,18 @@ function showSettings(){ $("settingsPanel").classList.toggle("hidden"); }
 $("settingsBtn").onclick=()=>showSettings();
 $("exportBtn").onclick=exportDb;
 $("ttImportBtn").onclick=()=>$("ttFile").click();
+$("mvImportBtn").onclick=()=>$("mvFile").click();
+$("mvFile").onchange=(e)=>{
+  const f=e.target.files[0]; e.target.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ const items=mvParseFile(rd.result);
+    if(!items) toast("Wrong file — use tracking-prod-records.csv (the 1.7MB v1 file) from the TV Time zip.");
+    else if(!items.length) toast("No movie records found in that file.");
+    else { let added=0;
+      for(const m of items) if(!movies.some(x=>x.id===m.id)){ movies.push(m); added++; }
+      save(); render(); toast(`Imported ${added} movies (${items.length-added} already present).`); } };
+  rd.readAsText(f);
+};
 $("ttFile").onchange=(e)=>{
   const f=e.target.files[0]; e.target.value="";
   if(!f) return;
@@ -1087,10 +1263,12 @@ $("syncAllBtn").onclick=syncAll;
 function setTab(t){
   tab=t;
   $("tabShows").classList.toggle("act",t==="shows");
+  $("tabMov").classList.toggle("act",t==="movies");
   $("tabDisc").classList.toggle("act",t==="discover");
   if(t==="discover") fetchDiscover(false); else render();
 }
 $("tabShows").onclick=()=>setTab("shows");
+$("tabMov").onclick=()=>setTab("movies");
 $("tabDisc").onclick=()=>setTab("discover");
 window.addEventListener("online",()=>toast("Back online."));
 window.addEventListener("offline",()=>toast("Offline — your saved data is safe, updates paused."));
