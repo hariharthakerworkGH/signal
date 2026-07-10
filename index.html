@@ -832,7 +832,10 @@ function renderShows(){
         for(const seas of sh.seasons){
           const airedIn=seas.eps.filter(ep=>aired(sh,ep)).length;
           const onIn=seas.eps.filter(ep=>sh.watched[epK(seas.season,ep.e)]).length;
-          const allOn=airedIn>0&&seas.eps.every(ep=>!aired(sh,ep)||sh.watched[epK(seas.season,ep.e)]);
+          const modeDl = dlOn(sh)&&markMode[sh.id]==="dl";
+          const allOn= modeDl
+            ? seas.eps.some(ep=>sh.watched[epK(seas.season,ep.e)]) && seas.eps.every(ep=>!sh.watched[epK(seas.season,ep.e)]||(sh.dl&&sh.dl[epK(seas.season,ep.e)]))
+            : airedIn>0&&seas.eps.every(ep=>!aired(sh,ep)||sh.watched[epK(seas.season,ep.e)]);
           const skey=sh.id+":"+seas.season;
           const defaultOpen = airedIn>0 && onIn<airedIn;                 // only seasons with pending episodes open
           const isOpenSeason = (skey in seasonToggle)? seasonToggle[skey] : defaultOpen;
@@ -846,7 +849,7 @@ function renderShows(){
           h+=`<div style="margin:12px 0">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <button data-sexp="${skey}" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit"><span class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.08em">SEASON ${seas.season} · ${onIn}/${airedIn} watched \u25B4</span></button>
-              <button class="btn" data-season="${sh.id}:${seas.season}:${allOn?0:1}" ${airedIn?"":"disabled"}>${allOn?"Clear season":"Mark aired"}</button>
+              <button class="btn" data-season="${sh.id}:${seas.season}:${allOn?0:1}" ${airedIn?"":"disabled"}>${modeDl? (allOn?"Clear downloads":"Mark downloaded") : (allOn?"Clear season":"Mark aired")}</button>
             </div>`;
           const nextIn=seas.eps.find(ep=>aired(sh,ep)&&!sh.watched[epK(seas.season,ep.e)]);
           if(nextIn&&nextIn.name) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin:0 0 6px">Next: E${pad(nextIn.e)} · ${esc(nextIn.name)}</div>`;
@@ -921,7 +924,7 @@ function bindView(){
 const WD="https://www.wikidata.org/w/api.php";
 let movTab = "watchlist"; // watchlist | watched
 let movFilter = "";
-let movBusy=false, movResults=[], movConfirmDel=null;
+let movBusy=false, movResults=[], movConfirmDel=null, movQuery="";
 
 async function wdSearch(q){
   const u=WD+"?action=wbsearchentities&language=en&format=json&origin=*&limit=7&search="+encodeURIComponent(q);
@@ -948,16 +951,10 @@ function addMovieFromWd(hit, det){
     addedAt:Date.now(), updatedAt:Date.now() };
   movies.unshift(m); save();
 }
-function movDlCycle(m){
-  if(!m.dlWant&&!m.dl){ m.dlWant=true; toast(m.title+" — added to pending downloads."); }
-  else if(m.dlWant&&!m.dl){ m.dl=true; m.dlWant=false; toast(m.title+" downloaded \u2713"); }
-  else { m.dl=false; m.dlWant=false; toast(m.title+" — download marks cleared."); }
-  m.updatedAt=Date.now(); save(); render();
-}
 
 function renderMovies(){
   let h=`<div style="display:flex;gap:8px;margin-bottom:10px">
-    <input id="mq" placeholder="Add a movie — search by title" value="" style="flex:1">
+    <input id="mq" placeholder="Add a movie — search by title" value="${esc(movQuery)}" style="flex:1">
     <button class="btn hot" id="mqBtn" ${movBusy?"disabled":""} style="padding:0 14px;font-size:13px;flex-shrink:0">${movBusy?"\u2026":"Search"}</button></div>`;
   if(movResults.length){
     for(const r of movResults) h+=`<button class="result" data-mvadd="${r.id}">
@@ -984,15 +981,18 @@ function renderMovies(){
   const shown=list.slice(0,120);
   for(const m of shown){
     const rel=m.releaseDate? (daysAway(m.releaseDate)>0? fmtDate(m.releaseDate): (m.year||m.releaseDate.slice(0,4))): (m.year||"");
-    const dlIcon = m.dl? "\u2713 dl": m.dlWant? "\u23F3 dl": "\uD83D\uDCE5";
+    // sequential grammar, identical to shows: Mark watched -> Mark downloaded -> done
+    let primary;
+    if(!m.watched) primary=`<button class="btn hot" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Mark watched</button>`;
+    else if(m.dlWant&&!m.dl) primary=`<button class="btn" style="font-size:11px;padding:4px 8px;color:var(--cyan);border-color:rgba(95,212,208,.5)" data-mvdlgo="${m.id}">\uD83D\uDCE5 Mark downloaded</button><button class="btn" style="font-size:11px;padding:4px 7px" title="No download reminder for this one" data-mvskip="${m.id}">\u2715</button>`;
+    else primary=`<button class="btn" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Unwatch</button>`;
     h+=`<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:8px 2px">
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${rel}</span></div>
+        <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${rel}</span>${m.dl?` <span class="mono" style="font-size:10px;color:var(--cyan)">\u2713 dl</span>`:""}</div>
         ${m.watched&&m.watchedAt?`<div class="mono" style="font-size:10px;color:var(--faint)">watched ${m.watchedAt.slice(0,10)}</div>`:""}
       </div>
-      <button class="btn" style="font-size:11px;padding:4px 8px;${m.dl?"color:var(--cyan);border-color:rgba(95,212,208,.5)":m.dlWant?"color:var(--amber)":""}" data-mvdl="${m.id}">${dlIcon}</button>
-      <button class="btn${m.watched?"":" hot"}" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">${m.watched?"Unwatch":"Watched"}</button>
-      ${movConfirmDel===m.id? `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdelyes="${m.id}">Sure?</button>`
+      ${primary}
+      ${movConfirmDel===m.id? `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdelyes="${m.id}">Yes, remove</button>`
         : `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdel="${m.id}">\u2715</button>`}
     </div>`;
   }
@@ -1002,7 +1002,8 @@ function renderMovies(){
 
 function bindMovies(){
   const mq=$("mq"), mf=$("mf");
-  if(mq){ mq.onkeydown=async(e)=>{ if(e.key!=="Enter") return; await movSearch(mq.value); }; }
+  if(mq){ mq.oninput=()=>{ movQuery=mq.value; };
+    mq.onkeydown=async(e)=>{ if(e.key!=="Enter") return; await movSearch(mq.value); }; }
   const mb=$("mqBtn"); if(mb) mb.onclick=async()=>{ await movSearch($("mq").value); };
   if(mf){ mf.oninput=()=>{ movFilter=mf.value; const keep=mf.selectionStart; render(); const nf=$("mf"); if(nf){ nf.focus(); nf.setSelectionRange(keep,keep); } }; }
   document.querySelectorAll("[data-mvadd]").forEach(b=>b.onclick=async()=>{
@@ -1015,9 +1016,15 @@ function bindMovies(){
   document.querySelectorAll("[data-mvclear]").forEach(b=>b.onclick=()=>{ movResults=[]; render(); });
   document.querySelectorAll("[data-movtab]").forEach(b=>b.onclick=()=>{ movTab=b.dataset.movtab; movConfirmDel=null; render(); });
   document.querySelectorAll("[data-mvw]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvw);
-    m.watched=!m.watched; m.watchedAt=m.watched? new Date().toISOString():null; m.updatedAt=Date.now(); save(); render();
-    toast(`${m.title} ${m.watched?"watched \u2713":"moved to watchlist"}${m.watched&&m.dlWant?"":""}`); });
-  document.querySelectorAll("[data-mvdl]").forEach(b=>b.onclick=()=>movDlCycle(movieById(b.dataset.mvdl)));
+    m.watched=!m.watched;
+    if(m.watched){ m.watchedAt=new Date().toISOString(); if(!m.dl) m.dlWant=true; }
+    else { m.watchedAt=null; m.dlWant=false; }
+    m.updatedAt=Date.now(); save(); render();
+    toast(m.watched? `${m.title} watched \u2713${!m.dl?" — downloaded it?":""}` : `${m.title} moved to watchlist.`); });
+  document.querySelectorAll("[data-mvdlgo]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvdlgo);
+    m.dl=true; m.dlWant=false; m.updatedAt=Date.now(); save(); render(); toast(`${m.title} downloaded \u2713`); });
+  document.querySelectorAll("[data-mvskip]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvskip);
+    m.dlWant=false; m.updatedAt=Date.now(); save(); render(); toast(`Okay — no download reminder for ${m.title}.`); });
   document.querySelectorAll("[data-mvdel]").forEach(b=>b.onclick=()=>{ movConfirmDel=b.dataset.mvdel; render(); });
   document.querySelectorAll("[data-mvdelyes]").forEach(b=>b.onclick=()=>{ const id=b.dataset.mvdelyes;
     movies=movies.filter(m=>m.id!==id); delMap[id]=Date.now(); movConfirmDel=null; save(); render(); });
