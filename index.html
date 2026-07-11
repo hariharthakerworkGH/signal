@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL</h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v25</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -636,7 +636,7 @@ function renderShows(){
   const list=db.filter(s=>catOf(s)===libTab);
   let h=`<div style="margin-bottom:14px">`+
     ["watching","waiting","done"].map(t=>
-      `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${LABEL[t]}${counts[t]?" ("+counts[t]+")":""}</button>`
+      `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${LABEL[t]} (${counts[t]})</button>`
     ).join("")+`</div>`;
   if(libTab==="watching"){
     let upNext=list.map(s=>({s,n:nextUnwatched(s)})).filter(x=>x.n&&wCount(x.s)>0).slice(0,6);
@@ -659,14 +659,14 @@ function renderShows(){
       h+=`</section>`;
     }
     const soon=db.map(sh=>({sh,si:soonInfo(sh)}))
-      .filter(x=>x.si&&x.si.ms-Date.now()<=48*3600e3)
-      .sort((a,b)=>a.si.ms-b.si.ms).slice(0,3);
-    if(soon.length){
-      h+=`<section style="margin-bottom:20px"><div class="sect mono" style="color:var(--cyan)">AIRING SOON</div>`;
+      .filter(x=>x.si&&x.si.ms-Date.now()<=7*24*3600e3)
+      .sort((a,b)=>a.si.ms-b.si.ms).slice(0,8);
+    if(soon.length&&!schedOpen){
+      h+=`<section style="margin-bottom:20px"><div class="sect mono" style="color:var(--cyan)">AIRING SOON · 7 DAYS</div>`;
       for(const {sh,si} of soon) h+=`
         <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding:8px 2px">
           <div style="min-width:0"><span style="font-weight:700;font-size:14px">${esc(sh.title)}</span>
-          <span class="mono" style="font-size:11px;color:var(--cyan);margin-left:8px">${si.tag}</span></div>
+          <span class="mono" style="font-size:11px;color:${si.tag==="PREMIERE"?"var(--violet)":"var(--cyan)"};margin-left:8px">${si.tag}</span></div>
           <span class="mono" style="font-size:11px;color:var(--dim);flex-shrink:0">${fmtDate(si.dateStr||localDate(si.ts))}${si.ts?" · "+fmtTime(si.ts):""}</span>
         </div>`;
       h+=`</section>`;
@@ -970,14 +970,16 @@ function renderMovies(){
     h+=`<div style="height:14px"></div>`;
   }
   const wl=movies.filter(m=>!m.watched), wd=movies.filter(m=>m.watched);
+  const td=movies.filter(m=>m.watched&&m.dlWant&&!m.dl);
   h+=`<div style="margin-bottom:10px">
     <button class="tab${movTab==="watchlist"?" act":""}" data-movtab="watchlist" style="font-size:12px;margin-right:14px">WATCHLIST (${wl.length})</button>
+    <button class="tab${movTab==="todl"?" act":""}" data-movtab="todl" style="font-size:12px;margin-right:14px">TO DOWNLOAD (${td.length})</button>
     <button class="tab${movTab==="watched"?" act":""}" data-movtab="watched" style="font-size:12px">WATCHED (${wd.length})</button></div>`;
   h+=`<input id="mf" placeholder="Filter\u2026" value="${esc(movFilter)}" style="margin-bottom:12px">`;
-  let list=(movTab==="watchlist"? wl: wd);
+  let list=(movTab==="watchlist"? wl: movTab==="todl"? td: wd);
   if(movFilter) list=list.filter(m=>m.title.toLowerCase().includes(movFilter.toLowerCase()));
   list=list.slice().sort((a,b)=> movTab==="watched"? ((b.watchedAt||"")<(a.watchedAt||"")?-1:1) : (b.addedAt||0)-(a.addedAt||0));
-  if(!list.length) h+=`<div class="empty">${movTab==="watchlist"?"Nothing on the watchlist. Search above, or import your TV Time movies from \u2699.":"No watched movies match."}</div>`;
+  if(!list.length) h+=`<div class="empty">${movTab==="watchlist"?"Nothing on the watchlist. Search above, or import your TV Time movies from \u2699.":movTab==="todl"?"Nothing pending — new watches land here until you mark them downloaded.":"No watched movies match."}</div>`;
   const shown=list.slice(0,120);
   for(const m of shown){
     const rel=m.releaseDate? (daysAway(m.releaseDate)>0? fmtDate(m.releaseDate): (m.year||m.releaseDate.slice(0,4))): (m.year||"");
