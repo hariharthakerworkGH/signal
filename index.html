@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v25</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v27</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -310,6 +310,9 @@ function epLive(ep){ // has this episode's exact air moment passed (device clock
   return !!ep.air && ep.air<=todayISO(); // no timestamp: treat date as IST date
 }
 function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep); }
+function isUp(sh){ // upcoming = no episode has aired yet, computed live (flips at the premiere moment)
+  return !(sh.seasons&&sh.seasons.some(se=>se.eps.some(ep=>epLive(ep))));
+}
 function localDate(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function epDate(ep){ return ep.ts? localDate(ep.ts): (ep.air||null); } // IST calendar date
 function fmtTime(ts){ return new Date(ts).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}); }
@@ -427,6 +430,7 @@ function toastUndo(t){
 function markSeason(id,s,on){
   const sh=db.find(x=>x.id===id); const seas=sh.seasons.find(x=>x.season===s);
   if(dlOn(sh) && markMode[sh.id]==="dl"){
+    undoState=null; // a stale watch-mode undo must not survive into download marking
     sh.dl=sh.dl||{};
     for(const ep of seas.eps){ const k=epK(s,ep.e);
       if(on && sh.watched[k]) sh.dl[k]=1; if(!on) delete sh.dl[k]; }
@@ -551,9 +555,9 @@ function render(){
   let eps=0,mins=0,done=0,watching=0,backlog=0;
   db.forEach(s=>{ const w=wCount(s); eps+=w; mins+=w*(s.runtime||40);
     const a=airedTotal(s); backlog+=Math.max(0,a-w);
-    if(a>0&&w>=a&&!s.upcoming) done++; else if(w>0) watching++; });
+    if(a>0&&w>=a&&!isUp(s)) done++; else if(w>0) watching++; });
   let todayCount=0; const _t=todayISO();
-  db.forEach(sh=>{ if(sh.upcoming){ if(sh.firstAir===_t) todayCount++; return; }
+  db.forEach(sh=>{ if(isUp(sh)){ if(sh.firstAir===_t) todayCount++; return; }
     for(const se of sh.seasons) for(const ep of se.eps) if(epDate(ep)===_t){ todayCount++; return; } });
   let legacy=null; try{ legacy=JSON.parse(store("signal.legacy")||"null"); }catch(e){}
   $("stats").innerHTML=db.length? `
@@ -595,11 +599,18 @@ const LABEL={watching:"WATCHING",waiting:"UP TO DATE",done:"DONE"};
 function soonInfo(sh){ // {ms, label} if next episode/premiere is scheduled, else null
   const now=Date.now();
   let ts=null, dateStr=null, tag="";
-  if(sh.upcoming){ dateStr=sh.firstAir; tag="PREMIERE"; }
+  if(isUp(sh)){
+    tag="PREMIERE";
+    let first=null;
+    for(const se of (sh.seasons||[])){ for(const ep of se.eps){ first=ep; break; } if(first) break; }
+    if(first&&(first.ts||first.air)){ ts=first.ts||null; dateStr=first.air||localDate(first.ts); }
+    else dateStr=sh.firstAir;
+  }
   else if(sh.nextEp){ ts=sh.nextEp.ts; dateStr=sh.nextEp.date; tag="S"+pad(sh.nextEp.s)+"E"+pad(sh.nextEp.e); }
   if(!ts&&!dateStr) return null;
   const ms = ts? new Date(ts).getTime() : new Date(dateStr+"T00:00:00").getTime();
-  if(ms<now-3600e3) return null; // already past
+  if(ts){ if(ms<now-3600e3) return null; }            // timed: 1h grace after air moment
+  else if(dateStr<todayISO()) return null;             // date-only: live through its whole day
   const n=daysAway(dateStr||localDate(ts));
   let label = n<=0? (ts? fmtTime(ts):"Today") : n===1? "Tom" : (n<=99? n+"d": "");
   return label? {ms, label, tag, dateStr, ts} : null;
@@ -614,7 +625,7 @@ function lastAiredMs(sh){
   return m;
 }
 function catOf(sh){
-  if(sh.upcoming) return "waiting";
+  if(isUp(sh)) return "waiting";
   if(airedTotal(sh)-wCount(sh)>0) return "watching";
   if(sh.bucketOverride==="done") return "done";
   if(sh.bucketOverride==="active") return "waiting";
@@ -748,18 +759,18 @@ function renderShows(){
     for(const sh of list){
       const a2=airedTotal(sh), w2=wCount(sh);
       const pct2=a2?Math.round(w2/a2*100):0, wait=Math.max(0,a2-w2);
-      const dot= sh.upcoming? "var(--violet)": (a2>0&&w2>=a2)? "var(--amber)": (sh.inProduction||sh.tmdbStatus==="Returning Series")? "var(--cyan)":"var(--faint)";
+      const dot= isUp(sh)? "var(--violet)": (a2>0&&w2>=a2)? "var(--amber)": (sh.inProduction||sh.tmdbStatus==="Returning Series")? "var(--cyan)":"var(--faint)";
       const cat2=catOf(sh);
       let sub="", subColor="var(--dim)";
       if(cat2==="watching"){ const n=nextUnwatched(sh);
         if(n){ sub=`S${pad(n.s)}E${pad(n.e)} · ${wait} left`; subColor="var(--cyan)"; } }
-      else if(sh.upcoming){ sub= sh.firstAir? "Premieres "+fmtDate(sh.firstAir): "Date TBA"; subColor="var(--violet)"; }
+      else if(isUp(sh)){ const si=soonInfo(sh); sub= si&&si.dateStr? "Premieres "+fmtDate(si.dateStr)+(si.ts?" \u00b7 "+fmtTime(si.ts):""): (sh.firstAir? "Premieres "+fmtDate(sh.firstAir):"Date TBA"); subColor="var(--violet)"; }
       else if(cat2==="waiting"){ const si=soonInfo(sh);
         sub= (si&&sh.nextEp)? `S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} · ${fmtDate(si.dateStr||localDate(si.ts))}`: "Awaiting schedule"; }
       h+=`<button class="tile" data-open="${sh.id}">
         <span class="pwrap">${sh.poster?`<img src="${sh.poster}" alt="" loading="lazy" onerror="this.remove()">`:""}<span class="fallback">${esc((sh.title||"?").slice(0,1).toUpperCase())}</span>
           <span class="dot" style="background:${dot}"></span>
-          ${!sh.upcoming?`<span class="pbar"><span style="display:block;height:100%;width:${pct2}%;background:var(--amber)"></span></span>`:""}
+          ${!isUp(sh)?`<span class="pbar"><span style="display:block;height:100%;width:${pct2}%;background:var(--amber)"></span></span>`:""}
         </span>
         <span class="tname">${esc(sh.title)}</span>
         ${sub?`<span class="tsub mono" style="color:${subColor}">${sub}</span>`:""}
@@ -775,8 +786,8 @@ function renderShows(){
   for(const sh of rows){
     const a=airedTotal(sh), t=totalEps(sh), w=wCount(sh);
     const pct=a?Math.round(w/a*100):0;
-    const isOpen=openId===sh.id, complete=a>0&&w>=a&&!sh.upcoming;
-    const status=sh.upcoming?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
+    const isOpen=openId===sh.id, complete=a>0&&w>=a&&!isUp(sh);
+    const status=isUp(sh)?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
       :(sh.inProduction||sh.tmdbStatus==="Returning Series")?["ON AIR","var(--cyan)"]:["ENDED","var(--faint)"];
     h+=`<div class="card" ${isOpen?'style="border-color:var(--faint)"':""}>
       <button class="cardhead" data-open="${sh.id}">
@@ -787,7 +798,7 @@ function renderShows(){
               <div style="font-weight:800;font-size:16px">${esc(sh.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${sh.year||""}</span></div>
               <span class="mono" style="font-size:10px;letter-spacing:.1em;color:${status[1]};flex-shrink:0">${status[0]}</span>
             </div>`;
-    if(sh.upcoming){
+    if(isUp(sh)){
       h+=`<div class="mono" style="font-size:11px;color:var(--violet);margin:4px 0 2px">Premieres ${sh.firstAir?fmtDate(sh.firstAir):"— TBA"}${sh.watchOn&&sh.watchOn.length?" on "+esc(sh.watchOn.join(", ")):""}</div>`;
     } else {
       h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} watched · ${pct}%</div>`;
@@ -801,7 +812,7 @@ function renderShows(){
       // actions first — no scrolling to act
       h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
         <button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
-      if(!sh.upcoming){
+      if(!isUp(sh)){
         const complete2 = airedTotal(sh)>0 && wCount(sh)>=airedTotal(sh);
         if(!complete2) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
         h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
@@ -818,7 +829,7 @@ function renderShows(){
       h+=`<a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
         <a class="btn" style="text-decoration:none" href="${imdbUrl}" target="_blank" rel="noopener">IMDb</a>
         <span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div>`;
-      if(dlOn(sh)&&!sh.upcoming){
+      if(dlOn(sh)&&!isUp(sh)){
         const mm=markMode[sh.id]||"watch";
         h+=`<div style="display:flex;gap:8px;align-items:center;margin:8px 0 2px">
           <span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">MARK AS</span>
@@ -826,7 +837,7 @@ function renderShows(){
           <button class="btn${mm==="dl"?" hot":""}" data-mm="${sh.id}:dl">Downloaded</button>
           </div>`;
       }
-      if(sh.upcoming){
+      if(isUp(sh)){
         h+=`<div style="font-size:13px;color:var(--dim);padding:12px 0">No aired episodes yet. After the premiere, hit Sync to unlock the grid.</div>`;
       } else {
         for(const seas of sh.seasons){
@@ -1302,7 +1313,7 @@ render();
 updateCloudBadge();
 
 /* startup: pull cloud first so merges land before air-date refresh */
-(async function init(){
+(async()=>{
   await pullCloud(true);
   if(!navigator.onLine) return;
   const STALE = 12*3600*1000;
