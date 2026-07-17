@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v27</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v28</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -191,10 +191,8 @@ function mergeMovies(remote){
   return before!==JSON.stringify(movies.map(m=>[m.id,m.updatedAt]));
 }
 function mergeCloud(remoteShows, remoteDel){
-  // union tombstones, per-id newest
   for(const [id,ts] of Object.entries(remoteDel||{}))
     if(!delMap[id]||ts>delMap[id]) delMap[id]=ts;
-  // union shows, per-id newest updatedAt (local wins ties)
   const map={};
   for(const s of (remoteShows||[])) map[s.id]=s;
   for(const s of db) if(!map[s.id]||(s.updatedAt||0)>=(map[s.id].updatedAt||0)) map[s.id]=s;
@@ -271,16 +269,15 @@ async function maze(path){
 }
 
 async function fetchFullShow(showId, existingWatched){
-  // one call: show details + every episode + next scheduled episode
   const det = await maze(`/shows/${showId}?embed[]=episodes&embed[]=nextepisode`);
   const bySeason = {};
   for(const ep of (det._embedded&&det._embedded.episodes)||[]){
-    if(!ep.season||!ep.number) continue; // skip specials/unnumbered
+    if(!ep.season||!ep.number) continue;
     (bySeason[ep.season]=bySeason[ep.season]||[]).push({ e:ep.number, air:ep.airdate||null, ts:ep.airstamp||null, name:(ep.name||"").slice(0,60) });
   }
   const seasons = Object.keys(bySeason).map(Number).sort((a,b)=>a-b)
     .map(sn=>({ season:sn, eps:bySeason[sn].sort((a,b)=>a.e-b.e) }));
-  if(seasons.some(x=>x.eps.length>150)) throw new Error("DAILY"); // daily-serial guard
+  if(seasons.some(x=>x.eps.length>150)) throw new Error("DAILY");
   const nx = det._embedded && det._embedded.nextepisode;
   const homeOn = (det.webChannel&&det.webChannel.name)||(det.network&&det.network.name)||null;
   const firstAir = det.premiered||null;
@@ -305,16 +302,16 @@ async function fetchFullShow(showId, existingWatched){
 
 /* ================= derived ================= */
 const epK=(s,e)=>s+"-"+e;
-function epLive(ep){ // has this episode's exact air moment passed (device clock = IST)?
+function epLive(ep){
   if(ep.ts) return new Date(ep.ts)<=new Date();
-  return !!ep.air && ep.air<=todayISO(); // no timestamp: treat date as IST date
+  return !!ep.air && ep.air<=todayISO();
 }
 function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep); }
-function isUp(sh){ // upcoming = no episode has aired yet, computed live (flips at the premiere moment)
+function isUp(sh){
   return !(sh.seasons&&sh.seasons.some(se=>se.eps.some(ep=>epLive(ep))));
 }
 function localDate(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
-function epDate(ep){ return ep.ts? localDate(ep.ts): (ep.air||null); } // IST calendar date
+function epDate(ep){ return ep.ts? localDate(ep.ts): (ep.air||null); }
 function fmtTime(ts){ return new Date(ts).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}); }
 const airedTotal=(sh)=>sh.seasons.reduce((a,s)=>a+s.eps.filter(ep=>aired(sh,ep)).length,0);
 const totalEps=(sh)=>sh.seasons.reduce((a,s)=>a+s.eps.length,0);
@@ -408,7 +405,7 @@ function toggleEp(id,s,e){
   }
   const before=catOf(sh);
   const marking=!sh.watched[k];
-  if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=Date.now(); // timestamp = fresh watch
+  if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=Date.now();
   if(marking && dlOn(sh) && !(sh.dl&&sh.dl[k])) dlPrompt={id:sh.id, s, e};
   else if(dlPrompt&&dlPrompt.id===sh.id) dlPrompt=null;
   const after=catOf(sh);
@@ -430,7 +427,7 @@ function toastUndo(t){
 function markSeason(id,s,on){
   const sh=db.find(x=>x.id===id); const seas=sh.seasons.find(x=>x.season===s);
   if(dlOn(sh) && markMode[sh.id]==="dl"){
-    undoState=null; // a stale watch-mode undo must not survive into download marking
+    undoState=null;
     sh.dl=sh.dl||{};
     for(const ep of seas.eps){ const k=epK(s,ep.e);
       if(on && sh.watched[k]) sh.dl[k]=1; if(!on) delete sh.dl[k]; }
@@ -500,15 +497,15 @@ async function fetchDiscover(force){
   discLoading=true; render();
   const found={};
   try{
-    const all=await maze("/schedule/full"); // one call: every future episode TVmaze knows (server-cached 24h)
+    const all=await maze("/schedule/full");
     const limit=new Date(); limit.setDate(limit.getDate()+60);
     const limISO=limit.getFullYear()+"-"+pad(limit.getMonth()+1)+"-"+pad(limit.getDate());
     const today=todayISO();
     for(const ep of all||[]){
-      if(ep.number!==1) continue;                        // premieres only (new show or new season)
+      if(ep.number!==1) continue;
       const show=(ep._embedded&&ep._embedded.show)||ep.show; if(!show) continue;
       const d= ep.airstamp? localDate(ep.airstamp): (ep.airdate||null);
-      if(!d||d<today||d>limISO) continue;                // next 60 days only
+      if(!d||d<today||d>limISO) continue;
       const hits=platformMatch(show.webChannel&&show.webChannel.name);
       if(!hits.length) continue;
       if(!found[show.id]||d<found[show.id].date) found[show.id]={
@@ -551,7 +548,6 @@ function renderDiscover(){
 
 
 function render(){
-  /* stats */
   let eps=0,mins=0,done=0,watching=0,backlog=0;
   db.forEach(s=>{ const w=wCount(s); eps+=w; mins+=w*(s.runtime||40);
     const a=airedTotal(s); backlog+=Math.max(0,a-w);
@@ -579,7 +575,6 @@ function render(){
   $("backupNag").insertAdjacentHTML("beforebegin","");
   $("statsCard").innerHTML=statsCard;
 
-  /* stale warning */
   const stale=db.some(s=>(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
   if(!syncing&&!cloudBusy) $("statusLine").textContent = stale? "\u26A0 Air dates 3+ days old — hit Sync all to refresh.":"";
 
@@ -596,7 +591,7 @@ function render(){
 }
 
 const LABEL={watching:"WATCHING",waiting:"UP TO DATE",done:"DONE"};
-function soonInfo(sh){ // {ms, label} if next episode/premiere is scheduled, else null
+function soonInfo(sh){
   const now=Date.now();
   let ts=null, dateStr=null, tag="";
   if(isUp(sh)){
@@ -609,8 +604,8 @@ function soonInfo(sh){ // {ms, label} if next episode/premiere is scheduled, els
   else if(sh.nextEp){ ts=sh.nextEp.ts; dateStr=sh.nextEp.date; tag="S"+pad(sh.nextEp.s)+"E"+pad(sh.nextEp.e); }
   if(!ts&&!dateStr) return null;
   const ms = ts? new Date(ts).getTime() : new Date(dateStr+"T00:00:00").getTime();
-  if(ts){ if(ms<now-3600e3) return null; }            // timed: 1h grace after air moment
-  else if(dateStr<todayISO()) return null;             // date-only: live through its whole day
+  if(ts){ if(ms<now-3600e3) return null; }
+  else if(dateStr<todayISO()) return null;
   const n=daysAway(dateStr||localDate(ts));
   let label = n<=0? (ts? fmtTime(ts):"Today") : n===1? "Tom" : (n<=99? n+"d": "");
   return label? {ms, label, tag, dateStr, ts} : null;
@@ -630,7 +625,6 @@ function catOf(sh){
   if(sh.bucketOverride==="done") return "done";
   if(sh.bucketOverride==="active") return "waiting";
   if(!(sh.inProduction||sh.tmdbStatus==="Returning Series")) return "done";
-  // dormancy: caught up, still marked Running, but nothing scheduled and silent 18+ months
   if(!soonInfo(sh)){
     const la=lastAiredMs(sh);
     if(la && Date.now()-la > 18*30.44*864e5) return "done";
@@ -650,7 +644,15 @@ function renderShows(){
       `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${LABEL[t]} (${counts[t]})</button>`
     ).join("")+`</div>`;
   if(libTab==="watching"){
-    let upNext=list.map(s=>({s,n:nextUnwatched(s)})).filter(x=>x.n&&wCount(x.s)>0).slice(0,6);
+    let upNext=list.map(s=>({s,n:nextUnwatched(s)})).filter(x=>{
+      if(!x.n) return false;
+      if(wCount(x.s)>0) return true;                       // in-progress shows always qualify
+      const seas=x.s.seasons.find(z=>z.season===x.n.s);
+      const ep=seas&&seas.eps.find(z=>z.e===x.n.e);
+      if(!ep) return false;
+      const t= ep.ts? new Date(ep.ts).getTime() : (ep.air? new Date(ep.air+"T00:00:00").getTime():0);
+      return t>0 && Date.now()-t < 7*24*3600e3;            // never-started: only if it aired this week (new premieres, not old backlog)
+    }).slice(0,6);
     if(dlPrompt && !upNext.some(x=>x.s.id===dlPrompt.id)){
       const psh=db.find(x=>x.id===dlPrompt.id);
       if(psh) upNext=[{s:psh, n:{s:dlPrompt.s, e:dlPrompt.e, name:""}}, ...upNext].slice(0,6);
@@ -682,7 +684,7 @@ function renderShows(){
         </div>`;
       h+=`</section>`;
     }
-    const isFresh=(v)=>typeof v==="number"&&v>1; // legacy/bulk marks are 1 — exempt
+    const isFresh=(v)=>typeof v==="number"&&v>1;
     const dlPend=db.filter(dlOn).map(x=>{
       let n=0; for(const se of x.seasons) for(const ep of se.eps){ const k=epK(se.season,ep.e);
         if(isFresh(x.watched[k])&&!(x.dl&&x.dl[k])) n++; }
@@ -809,7 +811,6 @@ function renderShows(){
     h+=`</div></div></button>`;
     if(isOpen){
       h+=`<div style="padding:12px 14px 14px;border-top:1px solid var(--line)">`;
-      // actions first — no scrolling to act
       h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
         <button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
       if(!isUp(sh)){
@@ -848,7 +849,7 @@ function renderShows(){
             ? seas.eps.some(ep=>sh.watched[epK(seas.season,ep.e)]) && seas.eps.every(ep=>!sh.watched[epK(seas.season,ep.e)]||(sh.dl&&sh.dl[epK(seas.season,ep.e)]))
             : airedIn>0&&seas.eps.every(ep=>!aired(sh,ep)||sh.watched[epK(seas.season,ep.e)]);
           const skey=sh.id+":"+seas.season;
-          const defaultOpen = airedIn>0 && onIn<airedIn;                 // only seasons with pending episodes open
+          const defaultOpen = airedIn>0 && onIn<airedIn;
           const isOpenSeason = (skey in seasonToggle)? seasonToggle[skey] : defaultOpen;
           if(!isOpenSeason){
             const note = airedIn===0? "not aired yet" : (onIn>=airedIn? onIn+"/"+airedIn+" \u2713" : onIn+"/"+airedIn);
@@ -948,7 +949,7 @@ async function wdDetails(qid){
   const claims=((await r.json()).entities||{})[qid]?.claims||{};
   let rel=null, run=null;
   const p577=claims.P577&&claims.P577[0]?.mainsnak?.datavalue?.value?.time;
-  if(p577) rel=p577.slice(1,11); // +2026-08-15T.. -> 2026-08-15
+  if(p577) rel=p577.slice(1,11);
   const p2047=claims.P2047&&claims.P2047[0]?.mainsnak?.datavalue?.value?.amount;
   if(p2047) run=Math.round(Math.abs(parseFloat(p2047)));
   return {rel, run};
@@ -994,7 +995,6 @@ function renderMovies(){
   const shown=list.slice(0,120);
   for(const m of shown){
     const rel=m.releaseDate? (daysAway(m.releaseDate)>0? fmtDate(m.releaseDate): (m.year||m.releaseDate.slice(0,4))): (m.year||"");
-    // sequential grammar, identical to shows: Mark watched -> Mark downloaded -> done
     let primary;
     if(!m.watched) primary=`<button class="btn hot" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Mark watched</button>`;
     else if(m.dlWant&&!m.dl) primary=`<button class="btn" style="font-size:11px;padding:4px 8px;color:var(--cyan);border-color:rgba(95,212,208,.5)" data-mvdlgo="${m.id}">\uD83D\uDCE5 Mark downloaded</button><button class="btn" style="font-size:11px;padding:4px 7px" title="No download reminder for this one" data-mvskip="${m.id}">\u2715</button>`;
@@ -1122,12 +1122,10 @@ function ttParseFile(text){
     if(d>shows[key].last) shows[key].last=d;
     if(d&&d<shows[key].first) shows[key].first=d;
   }
-  // capture lifetime stats from the FULL file, independent of what gets imported
   const all=Object.values(shows);
   let firstDate="9999", totalEps=0;
   for(const sh of all){ totalEps+=Object.keys(sh.eps).length;
     if(sh.first&&sh.first!=="9999"&&sh.first<firstDate) firstDate=sh.first; }
-  // track earliest per show during row pass instead (set below)
   if(firstDate==="9999") firstDate="";
   store("signal.legacy", JSON.stringify({eps:totalEps, since:firstDate, captured:Date.now()}));
   return all.sort((a,b)=> a.last<b.last?1:-1);
@@ -1211,7 +1209,7 @@ async function ttRun(sel){
       for(const seas of target.seasons) for(const ep of seas.eps){
         if(it.eps[seas.season+"-"+ep.e] && epLive(ep)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
       }
-      if(hit===0 && !db.find(x=>x.id===found.id && x!==target)){ /* imported but no episode matched (numbering mismatch) */
+      if(hit===0 && !db.find(x=>x.id===found.id && x!==target)){
         skipped.push({n:it.name, r:"added, but episode numbering did not match ("+Object.keys(it.eps).length+" records)"});
       }
       touch(target); saveLocal();
@@ -1244,7 +1242,7 @@ function renderPlatformBoxes(){
     const id=b.dataset.plat;
     myPlatforms = myPlatforms.includes(id)? myPlatforms.filter(x=>x!==id): [...myPlatforms,id];
     store("signal.platforms", JSON.stringify(myPlatforms));
-    discCache=null; store("signal.discover","null"); // platform change invalidates cache
+    discCache=null; store("signal.discover","null");
     renderPlatformBoxes();
     if(tab==="discover") fetchDiscover(true);
   });
@@ -1295,7 +1293,6 @@ $("tabDisc").onclick=()=>setTab("discover");
 window.addEventListener("online",()=>toast("Back online."));
 window.addEventListener("offline",()=>toast("Offline — your saved data is safe, updates paused."));
 
-/* online-only build: remove any previously installed service worker so updates apply instantly */
 if("serviceWorker" in navigator){ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{}); }
 
 /* cloud sync wiring */
@@ -1306,7 +1303,7 @@ $("clearTokenBtn").onclick=()=>{ ghToken=""; gistId=""; store("signal.token","")
 $("pullNowBtn").onclick=()=>pullCloud(false);
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible") pullCloud(true);
-  else if(pushTimer) pushCloud(); // flush pending changes when leaving
+  else if(pushTimer) pushCloud();
 });
 
 render();
@@ -1328,7 +1325,7 @@ updateCloudBadge();
       Object.assign(targets[i], fresh); touch(targets[i]); save(); render();
       $("statusLine").textContent=`Updating ${i+1}/${targets.length}…`;
     }catch(e){}
-    await new Promise(r=>setTimeout(r,600)); // stay under TVmaze rate limits
+    await new Promise(r=>setTimeout(r,600));
   }
   syncing=false; $("statusLine").textContent=""; render();
 })();
