@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v28</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v30</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -252,7 +252,8 @@ let viewMode = store("signal.view")||"grid";
 let schedOpen = false;
 let dlOpen = false;
 let dlShowAll = {}; // showId -> true when chip list fully expanded
-let dlPrompt = null; // {id,s,e} — just-watched ep on a tracked show awaiting download mark
+let dlPrompt = null;
+let bulkDlPrompt = null; // {id, season} | {id, all:true} — after a bulk watch on a reminders-on show // {id,s,e} — just-watched ep on a tracked show awaiting download mark
 let statsOpen = false;
 let seasonToggle = {};
 let markMode = {}; // showId -> "watch" | "dl" // "showId:season" -> true(open)/false(closed), overrides defaults
@@ -348,7 +349,8 @@ async function doSearch(){
         <span><b>${esc(h.name)}</b> <span style="color:var(--faint);font-size:12px">${h.premiered? h.premiered.slice(0,4):"TBA"}</span><br>
         <span style="font-size:11px;color:var(--dim)">${esc((h.summary||"").replace(/<[^>]+>/g,"").slice(0,80))}…</span></span>
       </button>`).join("");
-    document.querySelectorAll(".result").forEach(b=>b.onclick=()=>addShow(+b.dataset.id));
+    $("results").insertAdjacentHTML("beforeend",`<button class="result" id="manualAdd" style="justify-content:center;color:var(--dim)">\uFF0B Not on TVmaze? Add manually\u2026</button>`);
+    document.querySelectorAll(".result").forEach(b=>{ if(b.id==="manualAdd") b.onclick=manualForm; else b.onclick=()=>addShow(+b.dataset.id); });
   }catch(e){ $("msg").textContent = "Search failed. Check connection."; }
   $("addBtn").disabled=false; $("addBtn").textContent="Search";
 }
@@ -366,6 +368,7 @@ async function addShow(showId){
 
 async function syncShow(id, silent){
   const sh=db.find(s=>s.id===id); if(!sh||syncing) return;
+  if(sh.manual){ toast("Manual show — there is no data source to sync from."); return; }
   if(!navigator.onLine){ toast("Offline — sync needs internet."); return; }
   syncing=true; if(!silent) toast(`Syncing ${sh.title}…`,5000); render();
   try{
@@ -438,6 +441,7 @@ function markSeason(id,s,on){
   undoState={id:sh.id, watched:{...sh.watched}};
   for(const ep of seas.eps){ const k=epK(s,ep.e);
     if(on&&aired(sh,ep)) sh.watched[k]=1; if(!on) delete sh.watched[k]; }
+  bulkDlPrompt = (on&&dlOn(sh))? {id:sh.id, season:s} : null;
   touch(sh); save(); render();
   toastUndo(on? "Season "+s+" marked.":"Season "+s+" cleared.");
 }
@@ -446,6 +450,7 @@ function catchUp(id){
   undoState={id:sh.id, watched:{...sh.watched}};
   sh.watched={};
   for(const s of sh.seasons) for(const ep of s.eps) if(aired(sh,ep)) sh.watched[epK(s.season,ep.e)]=1;
+  bulkDlPrompt = dlOn(sh)? {id:sh.id, all:true} : null;
   touch(sh); save(); render();
   toastUndo(`Caught up — moved to ${LABEL[catOf(sh)]}.`);
 }
@@ -553,7 +558,7 @@ function render(){
     const a=airedTotal(s); backlog+=Math.max(0,a-w);
     if(a>0&&w>=a&&!isUp(s)) done++; else if(w>0) watching++; });
   let todayCount=0; const _t=todayISO();
-  db.forEach(sh=>{ if(isUp(sh)){ if(sh.firstAir===_t) todayCount++; return; }
+  db.forEach(sh=>{ if(isUp(sh)){ const si0=soonInfo(sh); if(((si0&&si0.dateStr)||sh.firstAir)===_t) todayCount++; return; }
     for(const se of sh.seasons) for(const ep of se.eps) if(epDate(ep)===_t){ todayCount++; return; } });
   let legacy=null; try{ legacy=JSON.parse(store("signal.legacy")||"null"); }catch(e){}
   $("stats").innerHTML=db.length? `
@@ -598,7 +603,7 @@ function soonInfo(sh){
     tag="PREMIERE";
     let first=null;
     for(const se of (sh.seasons||[])){ for(const ep of se.eps){ first=ep; break; } if(first) break; }
-    if(first&&(first.ts||first.air)){ ts=first.ts||null; dateStr=first.air||localDate(first.ts); }
+    if(first&&(first.ts||first.air)){ ts=first.ts||null; dateStr= first.ts? localDate(first.ts) : first.air; } // timestamp wins: same rule as epDate()
     else dateStr=sh.firstAir;
   }
   else if(sh.nextEp){ ts=sh.nextEp.ts; dateStr=sh.nextEp.date; tag="S"+pad(sh.nextEp.s)+"E"+pad(sh.nextEp.e); }
@@ -801,7 +806,8 @@ function renderShows(){
               <span class="mono" style="font-size:10px;letter-spacing:.1em;color:${status[1]};flex-shrink:0">${status[0]}</span>
             </div>`;
     if(isUp(sh)){
-      h+=`<div class="mono" style="font-size:11px;color:var(--violet);margin:4px 0 2px">Premieres ${sh.firstAir?fmtDate(sh.firstAir):"— TBA"}${sh.watchOn&&sh.watchOn.length?" on "+esc(sh.watchOn.join(", ")):""}</div>`;
+      const siH=soonInfo(sh); const dH=(siH&&siH.dateStr)||sh.firstAir;
+      h+=`<div class="mono" style="font-size:11px;color:var(--violet);margin:4px 0 2px">Premieres ${dH?fmtDate(dH):"— TBA"}${siH&&siH.ts?" \u00b7 "+fmtTime(siH.ts):""}${sh.watchOn&&sh.watchOn.length?" on "+esc(sh.watchOn.join(", ")):""}</div>`;
     } else {
       h+=`<div class="mono" style="font-size:11px;color:var(--dim);margin:3px 0 4px">${w}/${a} watched · ${pct}%</div>`;
       if(sh.nextEp&&sh.nextEp.date) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:4px">Next: S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} — ${fmtDate(sh.nextEp.date)}${sh.nextEp.ts? " · "+fmtTime(sh.nextEp.ts):""}</div>`;
@@ -811,12 +817,13 @@ function renderShows(){
     h+=`</div></div></button>`;
     if(isOpen){
       h+=`<div style="padding:12px 14px 14px;border-top:1px solid var(--line)">`;
-      h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
-        <button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
+      h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">`;
+      if(sh.manual) h+=`<button class="btn" data-manadd="${sh.id}">\uFF0B Episodes</button>`;
+      else h+=`<button class="btn" data-sync="${sh.id}" ${syncing?"disabled":""}>&#10227; Sync</button>`;
       if(!isUp(sh)){
         const complete2 = airedTotal(sh)>0 && wCount(sh)>=airedTotal(sh);
         if(!complete2) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
-        h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
+        if(!sh.manual) h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
         h+=`<button class="btn" data-dltrack="${sh.id}">\uD83D\uDCE5 Download reminders: ${dlOn(sh)?"on":"off"}</button>`;
         const cat3=catOf(sh);
         if(cat3==="waiting") h+=`<button class="btn" data-bucket="${sh.id}:done">Move to Done</button>`;
@@ -830,6 +837,11 @@ function renderShows(){
       h+=`<a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
         <a class="btn" style="text-decoration:none" href="${imdbUrl}" target="_blank" rel="noopener">IMDb</a>
         <span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div>`;
+      if(bulkDlPrompt&&bulkDlPrompt.id===sh.id&&bulkDlPrompt.all){
+        h+=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 2px;font-size:12px;color:var(--cyan)">Binge archived?
+          <button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-bdlgo="${sh.id}:all">\uD83D\uDCE5 Mark all watched as downloaded</button>
+          <button class="btn" data-bdlx="1">\u2715</button></div>`;
+      }
       if(dlOn(sh)&&!isUp(sh)){
         const mm=markMode[sh.id]||"watch";
         h+=`<div style="display:flex;gap:8px;align-items:center;margin:8px 0 2px">
@@ -839,7 +851,7 @@ function renderShows(){
           </div>`;
       }
       if(isUp(sh)){
-        h+=`<div style="font-size:13px;color:var(--dim);padding:12px 0">No aired episodes yet. After the premiere, hit Sync to unlock the grid.</div>`;
+        h+=`<div style="font-size:13px;color:var(--dim);padding:12px 0">No aired episodes yet. The grid unlocks by itself the moment the premiere airs.</div>`;
       } else {
         for(const seas of sh.seasons){
           const airedIn=seas.eps.filter(ep=>aired(sh,ep)).length;
@@ -863,6 +875,11 @@ function renderShows(){
               <button data-sexp="${skey}" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit"><span class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.08em">SEASON ${seas.season} · ${onIn}/${airedIn} watched \u25B4</span></button>
               <button class="btn" data-season="${sh.id}:${seas.season}:${allOn?0:1}" ${airedIn?"":"disabled"}>${modeDl? (allOn?"Clear downloads":"Mark downloaded") : (allOn?"Clear season":"Mark aired")}</button>
             </div>`;
+          if(bulkDlPrompt&&bulkDlPrompt.id===sh.id&&bulkDlPrompt.season===seas.season){
+            h+=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 6px;font-size:12px;color:var(--cyan)">Downloaded this season?
+              <button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-bdlgo="${sh.id}:${seas.season}">\uD83D\uDCE5 Mark season downloaded</button>
+              <button class="btn" data-bdlx="1">\u2715</button></div>`;
+          }
           const nextIn=seas.eps.find(ep=>aired(sh,ep)&&!sh.watched[epK(seas.season,ep.e)]);
           if(nextIn&&nextIn.name) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin:0 0 6px">Next: E${pad(nextIn.e)} · ${esc(nextIn.name)}</div>`;
           h+=`<div style="display:flex;flex-wrap:wrap;gap:6px">`;
@@ -890,6 +907,13 @@ function bindView(){
   document.querySelectorAll("[data-viewtoggle]").forEach(b=>b.onclick=()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); });
   document.querySelectorAll("[data-schedtoggle]").forEach(b=>b.onclick=()=>{ schedOpen=!schedOpen; render(); });
   document.querySelectorAll("[data-dlexp]").forEach(b=>b.onclick=()=>{ dlOpen=!dlOpen; render(); });
+  document.querySelectorAll("[data-bdlgo]").forEach(b=>b.onclick=()=>{ const [id,scope]=b.dataset.bdlgo.split(":");
+    const sh=db.find(x=>x.id===+id); sh.dl=sh.dl||{}; let n=0;
+    for(const se of sh.seasons){ if(scope!=="all"&&se.season!==+scope) continue;
+      for(const ep of se.eps){ const k=epK(se.season,ep.e); if(sh.watched[k]&&!sh.dl[k]){ sh.dl[k]=1; n++; } } }
+    bulkDlPrompt=null; touch(sh); save(); render();
+    toast(`${n} episode${n===1?"":"s"} marked downloaded.`); });
+  document.querySelectorAll("[data-bdlx]").forEach(b=>b.onclick=()=>{ bulkDlPrompt=null; render(); });
   document.querySelectorAll("[data-dlnext]").forEach(b=>b.onclick=()=>{ const [id,ss,ee]=b.dataset.dlnext.split(":").map(Number);
     const sh=db.find(x=>x.id===id); sh.dl=sh.dl||{}; sh.dl[epK(ss,ee)]=1; dlPrompt=null;
     touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded \u2713`); });
@@ -925,6 +949,7 @@ function bindView(){
     sh.bucketOverride=mode; touch(sh); save(); render(); toast(`${sh.title} — filed under ${mode==="done"?"DONE":"UP TO DATE"}.`); });
   document.querySelectorAll("[data-unlock]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.unlock); sh.unlockAll=!sh.unlockAll; touch(sh); save(); render(); toast(sh.unlockAll?"All cells unlocked for this show — you're on manual control.":"Air-date locking restored."); });
   document.querySelectorAll("[data-sync]").forEach(b=>b.onclick=()=>syncShow(+b.dataset.sync));
+  document.querySelectorAll("[data-manadd]").forEach(b=>b.onclick=()=>manualAddEps(+b.dataset.manadd));
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ confirmDel=+b.dataset.del; render(); });
   document.querySelectorAll("[data-delyes]").forEach(b=>b.onclick=()=>removeShow(+b.dataset.delyes));
   document.querySelectorAll("[data-delno]").forEach(b=>b.onclick=()=>{ confirmDel=null; render(); });
@@ -1073,6 +1098,70 @@ function mvParseFile(text){
       if(!map[key].watchedAt||when>map[key].watchedAt.slice(0,10)) map[key].watchedAt=when? when+"T00:00:00Z":null; }
   }
   return Object.values(map);
+}
+
+/* ================= manual shows (for titles TVmaze lacks) ================= */
+function manualForm(){
+  let seasons=[8];
+  function draw(){
+    let h='<div class="sect mono" style="color:var(--amber)">ADD A SHOW MANUALLY</div>'
+      +'<div style="font-size:12px;color:var(--dim);margin-bottom:10px">For titles TVmaze does not list (many Hindi OTT originals). You get a full tracking grid; air dates, countdowns and auto-updates are not possible without a data source \u2014 use \uFF0B Episodes on the show when new ones drop.</div>'
+      +'<input id="manTitle" placeholder="Show title" style="margin-bottom:8px">'
+      +'<input id="manPlat" placeholder="Platform (optional \u2014 e.g. SonyLIV)" style="margin-bottom:10px">'
+      +'<div id="manRows"></div>'
+      +'<div style="margin:4px 0 14px"><button class="btn" data-man="addseason">\uFF0B Add season</button></div>'
+      +'<div style="display:flex;gap:8px"><button class="btn hot" data-man="create">Create show</button><button class="btn" data-man="close">Cancel</button></div>';
+    const el=ttOverlay(h);
+    const rows=el.querySelector("#manRows");
+    rows.innerHTML=seasons.map((c,i)=>'<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span class="mono" style="font-size:11px;color:var(--dim);width:80px">SEASON '+(i+1)+'</span><input type="number" min="1" max="150" value="'+c+'" data-mansc="'+i+'" style="width:90px"> <span style="font-size:11px;color:var(--faint)">episodes</span></div>').join("");
+    el.querySelectorAll("[data-mansc]").forEach(inp=>inp.onchange=()=>{ seasons[+inp.dataset.mansc]=Math.max(1,Math.min(150,+inp.value||1)); });
+    el.querySelectorAll("[data-man]").forEach(b=>b.onclick=()=>{
+      const a=b.dataset.man;
+      if(a==="close") return ttClose();
+      if(a==="addseason"){ el.querySelectorAll("[data-mansc]").forEach(inp=>{ seasons[+inp.dataset.mansc]=Math.max(1,Math.min(150,+inp.value||1)); }); seasons.push(8); draw(); return; }
+      if(a==="create"){
+        const title=(el.querySelector("#manTitle").value||"").trim();
+        if(!title){ toast("A title is required."); return; }
+        el.querySelectorAll("[data-mansc]").forEach(inp=>{ seasons[+inp.dataset.mansc]=Math.max(1,Math.min(150,+inp.value||1)); });
+        const plat=(el.querySelector("#manPlat").value||"").trim();
+        createManualShow(title, plat, seasons); ttClose();
+      }
+    });
+  }
+  draw();
+}
+function createManualShow(title, platform, counts){
+  const today=todayISO();
+  const show={ id: -Date.now(), title, year:null, poster:null,
+    inProduction:false, tmdbStatus:"", runtime:40, imdb:null,
+    watchOn: platform? [platform]:[], firstAir:null, upcoming:false, nextEp:null,
+    seasons: counts.map((c,i)=>({season:i+1, eps:Array.from({length:c},(_,j)=>({e:j+1, air:today, ts:null, name:""}))})),
+    watched:{}, lastSynced:Date.now(), manual:true };
+  touch(show); db.unshift(show); save();
+  openId=show.id; libTab=catOf(show); render();
+  toast(`Added ${title} (manual) \u2014 mark away.`);
+}
+function manualAddEps(id){
+  const sh=db.find(x=>x.id===id);
+  const lastSeason=sh.seasons.length? sh.seasons[sh.seasons.length-1].season : 0;
+  let h='<div class="sect mono" style="color:var(--amber)">ADD EPISODES \u2014 '+esc(sh.title)+'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="mono" style="font-size:11px;color:var(--dim)">SEASON</span><input type="number" id="maeSeason" min="1" max="99" value="'+Math.max(1,lastSeason)+'" style="width:80px"></div>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px"><span class="mono" style="font-size:11px;color:var(--dim)">ADD</span><input type="number" id="maeCount" min="1" max="150" value="1" style="width:80px"> <span style="font-size:11px;color:var(--faint)">episode(s)</span></div>'
+    +'<div style="display:flex;gap:8px"><button class="btn hot" data-mae="go">Add</button><button class="btn" data-mae="close">Cancel</button></div>';
+  const el=ttOverlay(h);
+  el.querySelectorAll("[data-mae]").forEach(b=>b.onclick=()=>{
+    if(b.dataset.mae==="close") return ttClose();
+    const sn=Math.max(1,+el.querySelector("#maeSeason").value||1);
+    const cnt=Math.max(1,Math.min(150,+el.querySelector("#maeCount").value||1));
+    let seas=sh.seasons.find(x=>x.season===sn);
+    if(!seas){ seas={season:sn, eps:[]}; sh.seasons.push(seas); sh.seasons.sort((a,b)=>a.season-b.season); }
+    const start=seas.eps.length? Math.max(...seas.eps.map(e=>e.e)) : 0;
+    const today=todayISO();
+    for(let j=1;j<=cnt;j++) seas.eps.push({e:start+j, air:today, ts:null, name:""});
+    if(seas.eps.length>150){ seas.eps=seas.eps.slice(0,150); toast("Capped at 150 per season."); }
+    touch(sh); save(); ttClose();
+    toast(`Added ${cnt} episode${cnt>1?"s":""} to Season ${sn}.`);
+  });
 }
 
 /* ================= TV Time importer ================= */
