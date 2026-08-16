@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v30</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v32</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -120,6 +120,7 @@
       <button class="btn" id="importBtn">Import backup</button>
       <input type="file" id="importFile" accept=".json" class="hidden">
     </div>
+    <div id="storageMeter" style="margin-top:10px"></div>
     <div style="font-size:11px;color:var(--faint);margin-top:10px">
       Show data comes from TVmaze — no account or API key needed. Export a backup monthly; your watch history lives only in this browser.
     </div>
@@ -154,7 +155,30 @@
 const $ = (id) => document.getElementById(id);
 const todayISO = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 const pad = (n) => String(n).padStart(2,"0");
-function store(k,v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){ return null; } }
+let storageFull=false;
+function store(k,v){
+  try{ if(v===undefined) return localStorage.getItem(k);
+    localStorage.setItem(k,v); storageFull=false; }
+  catch(e){
+    if(v!==undefined){ storageFull=true;
+      try{ toast("Storage is full. That change was NOT saved. Export a backup, then remove some finished shows.",9000); }catch(_){}
+    }
+    return null;
+  }
+}
+function storageBytes(){
+  let n=0;
+  try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
+    if(k&&k.indexOf("signal.")===0) n+=k.length+((localStorage.getItem(k)||"").length); } }catch(e){}
+  return n;
+}
+function updateStorageMeter(){
+  const el=$("storageMeter"); if(!el) return;
+  const n=storageBytes(), mb=(n/1048576).toFixed(2);
+  const pct=Math.min(100,Math.round(n/5e6*100));
+  const col= n>4.5e6? "var(--red)" : n>3.5e6? "var(--amber)" : "var(--faint)";
+  el.innerHTML=`<div class="mono" style="font-size:11px;color:${col}">Local storage: ${mb} MB (about ${pct}% of the usual 5 MB browser limit)${n>3.5e6?" \u00b7 export a backup and consider removing finished shows":""}</div>`;
+}
 let db = []; try { db = JSON.parse(store("signal.db")||"[]"); } catch(e){ db=[]; }
 let movies = []; try { movies = JSON.parse(store("signal.movies")||"[]"); } catch(e){ movies=[]; }
 let delMap = {}; try { delMap = JSON.parse(store("signal.del")||"{}"); } catch(e){ delMap={}; }
@@ -255,10 +279,14 @@ let dlShowAll = {}; // showId -> true when chip list fully expanded
 let dlPrompt = null;
 let bulkDlPrompt = null; // {id, season} | {id, all:true} — after a bulk watch on a reminders-on show // {id,s,e} — just-watched ep on a tracked show awaiting download mark
 let statsOpen = false;
+let showFilter = "";
+let showSort = store("signal.sort")||"auto";   // auto | az | recent
+let movSort  = store("signal.movsort")||"auto";
 let seasonToggle = {};
 let markMode = {}; // showId -> "watch" | "dl" // "showId:season" -> true(open)/false(closed), overrides defaults
 
 function toast(t, ms=2600){ const el=$("toast"); el.textContent=t; el.classList.remove("hidden"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.add("hidden"),ms); }
+function byTitle(a,b){ return String(a.title||"").localeCompare(String(b.title||""), undefined, {numeric:true, sensitivity:"base"}); }
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 /* ================= TVmaze (no API key needed) ================= */
@@ -586,13 +614,17 @@ function render(){
   const nagDue = db.length>0 && !ghToken
     && Date.now()-(+store("signal.lastexport")||0) > 30*864e5
     && Date.now() > (+store("signal.nagsnooze")||0);
-  $("backupNag").innerHTML = nagDue? `<div style="display:flex;align-items:center;gap:10px;border:1px solid rgba(227,107,107,.4);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--dim)">
+  $("backupNag").innerHTML = storageFull? `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--red)">
+    <span style="flex:1"><b>Storage is full.</b> Recent changes were not saved. Export a backup now, then remove finished shows.</span>
+    <button class="btn hot" id="fullExport">Export</button></div>`
+    : nagDue? `<div style="display:flex;align-items:center;gap:10px;border:1px solid rgba(227,107,107,.4);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--dim)">
     <span style="flex:1">No sync, no recent backup — one browser-data clear loses everything.</span>
     <button class="btn hot" id="nagExport">Export</button><button class="btn" id="nagLater">Later</button></div>`:"";
   $("view").innerHTML = tab==="discover"? renderDiscover(): tab==="movies"? renderMovies(): renderShows();
   bindView();
   if(tab==="movies") bindMovies();
-  if(nagDue){ $("nagExport").onclick=()=>{ exportDb(); render(); }; $("nagLater").onclick=()=>{ store("signal.nagsnooze",String(Date.now()+7*864e5)); render(); }; }
+  if(storageFull){ const fe=$("fullExport"); if(fe) fe.onclick=()=>{ exportDb(); updateStorageMeter(); }; }
+  else if(nagDue){ $("nagExport").onclick=()=>{ exportDb(); render(); }; $("nagLater").onclick=()=>{ store("signal.nagsnooze",String(Date.now()+7*864e5)); render(); }; }
 }
 
 const LABEL={watching:"WATCHING",waiting:"UP TO DATE",done:"DONE"};
@@ -643,13 +675,14 @@ function renderShows(){
     <div style="font-size:13px;color:var(--dim);line-height:1.7">Search any series above — Hindi, Korean, English, anything.<br>Tap cells to mark watched; dashed cells haven't aired yet.</div></div>`;
   const counts={watching:0,waiting:0,done:0};
   db.forEach(s=>counts[catOf(s)]++);
-  const list=db.filter(s=>catOf(s)===libTab);
+  const listAll=db.filter(s=>catOf(s)===libTab);
+  let list = showFilter? listAll.filter(s=>(s.title||"").toLowerCase().includes(showFilter.toLowerCase())) : listAll;
   let h=`<div style="margin-bottom:14px">`+
     ["watching","waiting","done"].map(t=>
       `<button class="tab${libTab===t?" act":""}" data-lib="${t}" style="font-size:12px;margin-right:14px">${LABEL[t]} (${counts[t]})</button>`
     ).join("")+`</div>`;
   if(libTab==="watching"){
-    let upNext=list.map(s=>({s,n:nextUnwatched(s)})).filter(x=>{
+    let upNext=listAll.map(s=>({s,n:nextUnwatched(s)})).filter(x=>{
       if(!x.n) return false;
       if(wCount(x.s)>0) return true;                       // in-progress shows always qualify
       const seas=x.s.seasons.find(z=>z.season===x.n.s);
@@ -744,6 +777,10 @@ function renderShows(){
       }
     }
   }
+  if(!list.length && showFilter){
+    return h+`<input id="sf" placeholder="Filter shows\u2026" value="${esc(showFilter)}" style="margin-bottom:12px">
+      <div class="empty">No shows in ${LABEL[libTab]} match "${esc(showFilter)}".</div>`;
+  }
   if(!list.length){
     const msgs={
       watching:"Nothing in progress. Shows appear here when they have aired episodes you haven't watched.",
@@ -752,15 +789,26 @@ function renderShows(){
     return h+`<div class="empty">${msgs[libTab]}</div>`;
   }
   const isWaitingTab = libTab==="waiting";
-  if(isWaitingTab){
-    list.sort((a,b)=>{ const x=soonInfo(a),y=soonInfo(b);
+  list=list.slice();
+  if(showSort==="az") list.sort(byTitle);
+  else if(showSort==="recent") list.sort((a,b)=>(b.addedAt||b.updatedAt||0)-(a.addedAt||a.updatedAt||0));
+  else if(isWaitingTab) list.sort((a,b)=>{ const x=soonInfo(a),y=soonInfo(b);
       return (x?x.ms:Infinity)-(y?y.ms:Infinity); });
-  }
+  else list.sort((a,b)=>(b.addedAt||b.updatedAt||0)-(a.addedAt||a.updatedAt||0));
   const effView = isWaitingTab? "list" : viewMode;
   const opened = list.find(x=>x.id===openId);
-  h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+  if(listAll.length>10 || showFilter) h+=`<input id="sf" placeholder="Filter shows\u2026" value="${esc(showFilter)}" style="margin-bottom:12px">`;
+  const sortOpts = isWaitingTab
+    ? [["auto","Soonest"],["az","A to Z"],["recent","Recently added"]]
+    : [["auto","Recently added"],["az","A to Z"]];
+  h+=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
     <div class="sect mono" style="margin:0">${LABEL[libTab]} — ${list.length}</div>
-    ${isWaitingTab?"":`<button class="btn" data-viewtoggle="1">${viewMode==="grid"?"List view":"Grid view"}</button>`}</div>`;
+    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <select id="sortSel" style="width:auto;padding:5px 8px;font-size:12px">
+        ${sortOpts.map(([v,l])=>`<option value="${v}"${showSort===v?" selected":""}>${l}</option>`).join("")}
+      </select>
+      ${isWaitingTab?"":`<button class="btn" data-viewtoggle="1">${viewMode==="grid"?"List view":"Grid view"}</button>`}
+    </div></div>`;
   if(effView==="grid"&&!opened){
     h+=`<div class="grid">`;
     for(const sh of list){
@@ -903,6 +951,11 @@ function renderShows(){
 
 
 function bindView(){
+  const ss=$("sortSel");
+  if(ss) ss.onchange=()=>{ showSort=ss.value; store("signal.sort",showSort); render(); };
+  const sf=$("sf");
+  if(sf){ sf.oninput=()=>{ showFilter=sf.value; const keep=sf.selectionStart; render();
+    const nf=$("sf"); if(nf){ nf.focus(); nf.setSelectionRange(keep,keep); } }; }
   document.querySelectorAll("[data-lib]").forEach(b=>b.onclick=()=>{ libTab=b.dataset.lib; openId=null; render(); });
   document.querySelectorAll("[data-viewtoggle]").forEach(b=>b.onclick=()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); });
   document.querySelectorAll("[data-schedtoggle]").forEach(b=>b.onclick=()=>{ schedOpen=!schedOpen; render(); });
@@ -1012,10 +1065,21 @@ function renderMovies(){
     <button class="tab${movTab==="watchlist"?" act":""}" data-movtab="watchlist" style="font-size:12px;margin-right:14px">WATCHLIST (${wl.length})</button>
     <button class="tab${movTab==="todl"?" act":""}" data-movtab="todl" style="font-size:12px;margin-right:14px">TO DOWNLOAD (${td.length})</button>
     <button class="tab${movTab==="watched"?" act":""}" data-movtab="watched" style="font-size:12px">WATCHED (${wd.length})</button></div>`;
-  h+=`<input id="mf" placeholder="Filter\u2026" value="${esc(movFilter)}" style="margin-bottom:12px">`;
   let list=(movTab==="watchlist"? wl: movTab==="todl"? td: wd);
+  if(list.length>10 || movFilter) h+=`<input id="mf" placeholder="Filter movies\u2026" value="${esc(movFilter)}" style="margin-bottom:12px">`;
   if(movFilter) list=list.filter(m=>m.title.toLowerCase().includes(movFilter.toLowerCase()));
-  list=list.slice().sort((a,b)=> movTab==="watched"? ((b.watchedAt||"")<(a.watchedAt||"")?-1:1) : (b.addedAt||0)-(a.addedAt||0));
+  list=list.slice();
+  if(movSort==="az") list.sort(byTitle);
+  else if(movTab==="watched") list.sort((a,b)=> ((b.watchedAt||"")<(a.watchedAt||"")?-1:1));
+  else list.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
+  const mSortOpts = movTab==="watched"
+    ? [["auto","Recently watched"],["az","A to Z"]]
+    : [["auto","Recently added"],["az","A to Z"]];
+  h+=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+    <div class="sect mono" style="margin:0">${movTab==="watchlist"?"WATCHLIST":movTab==="todl"?"TO DOWNLOAD":"WATCHED"} — ${list.length}</div>
+    <select id="movSortSel" style="width:auto;padding:5px 8px;font-size:12px;flex-shrink:0">
+      ${mSortOpts.map(([v,l])=>`<option value="${v}"${movSort===v?" selected":""}>${l}</option>`).join("")}
+    </select></div>`;
   if(!list.length) h+=`<div class="empty">${movTab==="watchlist"?"Nothing on the watchlist. Search above, or import your TV Time movies from \u2699.":movTab==="todl"?"Nothing pending — new watches land here until you mark them downloaded.":"No watched movies match."}</div>`;
   const shown=list.slice(0,120);
   for(const m of shown){
@@ -1034,7 +1098,7 @@ function renderMovies(){
         : `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdel="${m.id}">\u2715</button>`}
     </div>`;
   }
-  if(list.length>shown.length) h+=`<div class="mono" style="font-size:11px;color:var(--faint);margin-top:10px">${list.length-shown.length} more — narrow with the filter.</div>`;
+  if(list.length>shown.length) h+=`<div class="mono" style="font-size:11px;color:var(--faint);margin-top:10px">${list.length-shown.length} more. Narrow with the filter or change the sort to reach them.</div>`;
   return h;
 }
 
@@ -1043,6 +1107,8 @@ function bindMovies(){
   if(mq){ mq.oninput=()=>{ movQuery=mq.value; };
     mq.onkeydown=async(e)=>{ if(e.key!=="Enter") return; await movSearch(mq.value); }; }
   const mb=$("mqBtn"); if(mb) mb.onclick=async()=>{ await movSearch($("mq").value); };
+  const ms2=$("movSortSel");
+  if(ms2) ms2.onchange=()=>{ movSort=ms2.value; store("signal.movsort",movSort); render(); };
   if(mf){ mf.oninput=()=>{ movFilter=mf.value; const keep=mf.selectionStart; render(); const nf=$("mf"); if(nf){ nf.focus(); nf.setSelectionRange(keep,keep); } }; }
   document.querySelectorAll("[data-mvadd]").forEach(b=>b.onclick=async()=>{
     const hit=movResults.find(x=>x.id===b.dataset.mvadd); if(!hit) return;
@@ -1337,7 +1403,7 @@ function renderPlatformBoxes(){
   });
 }
 renderPlatformBoxes();
-function showSettings(){ $("settingsPanel").classList.toggle("hidden"); }
+function showSettings(){ $("settingsPanel").classList.toggle("hidden"); updateStorageMeter(); }
 $("settingsBtn").onclick=()=>showSettings();
 $("exportBtn").onclick=exportDb;
 $("ttImportBtn").onclick=()=>$("ttFile").click();
