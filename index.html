@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v33</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v34</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -286,6 +286,9 @@ let seasonToggle = {};
 let markMode = {}; // showId -> "watch" | "dl" // "showId:season" -> true(open)/false(closed), overrides defaults
 
 function toast(t, ms=2600){ const el=$("toast"); el.textContent=t; el.classList.remove("hidden"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.add("hidden"),ms); }
+function plain(x){ return String(x||"").replace(/<[^>]+>/g," ")
+  .replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#39;/g,"'")
+  .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim(); }
 function byTitle(a,b){ return String(a.title||"").localeCompare(String(b.title||""), undefined, {numeric:true, sensitivity:"base"}); }
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
@@ -375,7 +378,7 @@ async function doSearch(){
       <button class="result" data-id="${h.id}">
         <img src="${(h.image&&h.image.medium)||''}" alt="" onerror="this.style.visibility='hidden'">
         <span><b>${esc(h.name)}</b> <span style="color:var(--faint);font-size:12px">${h.premiered? h.premiered.slice(0,4):"TBA"}</span><br>
-        <span style="font-size:11px;color:var(--dim)">${esc((h.summary||"").replace(/<[^>]+>/g,"").slice(0,80))}…</span></span>
+        <span style="font-size:11px;color:var(--dim)">${esc(plain(h.summary).slice(0,80))}…</span></span>
       </button>`).join("");
     $("results").insertAdjacentHTML("beforeend",`<button class="result" id="manualAdd" style="justify-content:center;color:var(--dim)">\uFF0B Not on TVmaze? Add manually\u2026</button>`);
     document.querySelectorAll(".result").forEach(b=>{ if(b.id==="manualAdd") b.onclick=manualForm; else b.onclick=()=>addShow(+b.dataset.id); });
@@ -516,6 +519,7 @@ const PLATFORMS=[
 let myPlatforms=[]; try{ myPlatforms=JSON.parse(store("signal.platforms")||"[]"); }catch(e){}
 let discCache=null; try{ discCache=JSON.parse(store("signal.discover")||"null"); }catch(e){}
 let discLoading=false;
+let discOpen=null, discDetail={}; // detail cache is deliberately in memory only, never stored
 
 function platformMatch(channelName){
   const c=(channelName||"").toLowerCase();
@@ -544,7 +548,7 @@ async function fetchDiscover(force){
       if(!found[show.id]||d<found[show.id].date) found[show.id]={
         id:show.id, title:show.name,
         poster:(show.image&&show.image.medium)||null,
-        date:d, season:ep.season,
+        date:d, season:ep.season, ts: ep.airstamp||null,
         platform:hits[0].label
       };
     }
@@ -554,6 +558,23 @@ async function fetchDiscover(force){
   discLoading=false; render();
 }
 
+async function discDetails(it){
+  discDetail[it.id]={loading:true}; render();
+  try{
+    const det=await maze("/shows/"+it.id+"?embed[]=episodes");
+    const eps=((det._embedded&&det._embedded.episodes)||[]).filter(e=>e.season===it.season&&e.number);
+    discDetail[it.id]={
+      summary: plain(det.summary).slice(0,420),
+      genres: (det.genres||[]).join(", "),
+      runtime: det.averageRuntime||det.runtime||null,
+      status: det.status||"",
+      imdb: (det.externals&&det.externals.imdb)||null,
+      epNote: eps.length? `Season ${it.season} \u00b7 ${eps.length} episode${eps.length>1?"s":""} listed`
+                        : `Season ${it.season} \u00b7 episode count not announced`
+    };
+  }catch(e){ discDetail[it.id]={error:true}; }
+  render();
+}
 function renderDiscover(){
   if(!myPlatforms.length)
     return `<div class="empty">Pick your subscriptions first — open settings (⚙) and tick Netflix, Prime, JioHotstar etc. Discover will list new premieres on them.</div>`;
@@ -566,13 +587,29 @@ function renderDiscover(){
     return h+`<div class="empty">No premieres found on your platforms in the next 60 days. Only shows whose home platform matches count — licensed imports won't appear.</div>`;
   for(const it of items){
     const have=db.some(s=>s.id===it.id);
-    h+=`<div class="result" style="cursor:default">
-      <img src="${it.poster||''}" alt="" onerror="this.style.visibility='hidden'">
-      <span style="flex:1;min-width:0"><b>${esc(it.title)}</b>
-        <span class="mono" style="font-size:11px;color:var(--violet)"> S${it.season} · ${fmtDate(it.date)}</span><br>
-        <span class="chip">${esc(it.platform)}</span></span>
-      ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
-            :`<button class="btn hot" data-discadd="${it.id}" style="flex-shrink:0">+ Add</button>`}
+    const open=discOpen===it.id, d=discDetail[it.id];
+    let panel="";
+    if(open){
+      if(!d||d.loading) panel=`<div class="mono" style="font-size:11px;color:var(--dim)">Loading details\u2026</div>`;
+      else if(d.error) panel=`<div class="mono" style="font-size:11px;color:var(--red)">Details unavailable right now.</div>`;
+      else panel=`${d.summary? `<div style="font-size:13px;color:var(--dim);line-height:1.55;margin-bottom:8px">${esc(d.summary)}</div>`
+          :`<div style="font-size:13px;color:var(--faint);margin-bottom:8px">No description on TVmaze yet.</div>`}
+        <div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:8px">${esc(d.epNote)}${d.runtime?` \u00b7 ${d.runtime} min`:""}${d.genres?` \u00b7 ${esc(d.genres)}`:""}${d.status?` \u00b7 ${esc(d.status)}`:""}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" series")}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
+          <a class="btn" style="text-decoration:none" href="${d.imdb? "https://www.imdb.com/title/"+d.imdb+"/" : "https://www.imdb.com/find/?q="+encodeURIComponent(it.title)}" target="_blank" rel="noopener">IMDb</a>
+        </div>`;
+    }
+    h+=`<div>
+      <div class="result" style="cursor:default;${open?"margin-bottom:0":""}">
+        <img src="${it.poster||''}" alt="" onerror="this.style.visibility='hidden'">
+        <button data-discopen="${it.id}" style="flex:1;min-width:0;background:none;border:none;padding:0;text-align:left;font-family:inherit;color:var(--text);cursor:pointer"><b>${esc(it.title)}</b>
+          <span class="mono" style="font-size:11px;color:var(--violet)"> S${it.season} · ${fmtDate(it.date)}${it.ts?" · "+fmtTime(it.ts):""}</span><br>
+          <span class="chip">${esc(it.platform)}</span></button>
+        ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
+              :`<button class="btn hot" data-discadd="${it.id}" style="flex-shrink:0">+ Add</button>`}
+      </div>
+      ${open? `<div style="border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;padding:10px 12px;margin-bottom:8px">${panel}</div>`:""}
     </div>`;
   }
   if(discCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Refreshed ${agoLabel(discCache.ts)} · original-platform matches only · listings thin out beyond ~a month, platforms announce late</div>`;
@@ -1007,6 +1044,13 @@ function bindView(){
   document.querySelectorAll("[data-delyes]").forEach(b=>b.onclick=()=>removeShow(+b.dataset.delyes));
   document.querySelectorAll("[data-delno]").forEach(b=>b.onclick=()=>{ confirmDel=null; render(); });
   document.querySelectorAll("[data-discadd]").forEach(b=>b.onclick=()=>{ b.disabled=true; b.textContent="…"; addShow(+b.dataset.discadd); });
+  document.querySelectorAll("[data-discopen]").forEach(b=>b.onclick=()=>{
+    const id=+b.dataset.discopen;
+    discOpen = discOpen===id? null : id;
+    const need = discOpen===id && !discDetail[id];
+    render();
+    if(need){ const it=((discCache&&discCache.items)||[]).find(x=>x.id===id); if(it) discDetails(it); }
+  });
   document.querySelectorAll("[data-discrefresh]").forEach(b=>b.onclick=()=>fetchDiscover(true));
 }
 
