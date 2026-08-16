@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v32</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v33</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -842,7 +842,7 @@ function renderShows(){
     const a=airedTotal(sh), t=totalEps(sh), w=wCount(sh);
     const pct=a?Math.round(w/a*100):0;
     const isOpen=openId===sh.id, complete=a>0&&w>=a&&!isUp(sh);
-    const status=isUp(sh)?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
+    const status=sh.manual?["MANUAL","var(--faint)"]:isUp(sh)?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
       :(sh.inProduction||sh.tmdbStatus==="Returning Series")?["ON AIR","var(--cyan)"]:["ENDED","var(--faint)"];
     h+=`<div class="card" ${isOpen?'style="border-color:var(--faint)"':""}>
       <button class="cardhead" data-open="${sh.id}">
@@ -1015,6 +1015,7 @@ const WD="https://www.wikidata.org/w/api.php";
 let movTab = "watchlist"; // watchlist | watched
 let movFilter = "";
 let movBusy=false, movResults=[], movConfirmDel=null, movQuery="";
+let movSearched=false, movOpenId=null;
 
 async function wdSearch(q){
   const u=WD+"?action=wbsearchentities&language=en&format=json&origin=*&limit=7&search="+encodeURIComponent(q);
@@ -1034,6 +1035,27 @@ async function wdDetails(qid){
 }
 function dlOn(sh){ return sh.dlTrack!==false; } // default ON; explicit false = opted out
 function movieById(id){ return movies.find(m=>m.id===id); }
+function manualMovieForm(){
+  let h='<div class="sect mono" style="color:var(--amber)">ADD A MOVIE MANUALLY</div>'
+    +'<div style="font-size:12px;color:var(--dim);margin-bottom:10px">For titles Wikidata does not list yet, such as a film you have only seen a trailer for. Leave the date blank and set it later from the movie row once it is announced.</div>'
+    +'<input id="mmTitle" placeholder="Movie title" style="margin-bottom:8px">'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px"><span class="mono" style="font-size:11px;color:var(--dim)">RELEASE</span><input type="date" id="mmDate" style="width:auto"> <span style="font-size:11px;color:var(--faint)">optional</span></div>'
+    +'<div style="display:flex;gap:8px"><button class="btn hot" data-mm2="create">Add movie</button><button class="btn" data-mm2="close">Cancel</button></div>';
+  const el=ttOverlay(h);
+  el.querySelectorAll("[data-mm2]").forEach(b=>b.onclick=()=>{
+    if(b.dataset.mm2==="close") return ttClose();
+    const t=(el.querySelector("#mmTitle").value||"").trim();
+    if(!t){ toast("A title is required."); return; }
+    if(movies.some(m=>(m.title||"").toLowerCase()===t.toLowerCase())){ toast("Already in your movies."); return; }
+    const d=el.querySelector("#mmDate").value||null;
+    movies.unshift({ id:"mvman-"+Date.now(), title:t, year: d? +d.slice(0,4): null, releaseDate:d, runtime:null,
+      watched:false, watchedAt:null, dlWant:false, dl:false, manual:true,
+      addedAt:Date.now(), updatedAt:Date.now() });
+    movTab="watchlist"; movResults=[]; movSearched=false; save(); ttClose();
+    toast(`Added ${t} to your watchlist.`);
+  });
+}
+function isWdMovie(id){ return /^mv-Q\d+$/.test(id||""); }
 function addMovieFromWd(hit, det){
   const m={ id:"mv-"+hit.id, title:hit.label, year: det.rel? +det.rel.slice(0,4): null,
     releaseDate: det.rel||null, runtime: det.run||null,
@@ -1051,6 +1073,7 @@ function renderMovies(){
       <span style="flex:1"><b>${esc(r.label)}</b><br><span style="font-size:11px;color:var(--dim)">${esc(r.description||"")}</span></span></button>`;
     h+=`<div style="margin-bottom:12px"><button class="btn" data-mvclear="1">Clear results</button></div>`;
   }
+  if(movResults.length||movSearched) h+=`<button class="result" data-mvmanual="1" style="justify-content:center;color:var(--dim);margin-bottom:12px">\uFF0B Not found? Add manually\u2026</button>`;
   const soon=movies.filter(m=>m.releaseDate&&daysAway(m.releaseDate)>0).sort((a,b)=>a.releaseDate<b.releaseDate?-1:1).slice(0,4);
   if(soon.length){
     h+=`<div class="sect mono" style="color:var(--violet)">RELEASING SOON</div>`;
@@ -1088,14 +1111,25 @@ function renderMovies(){
     if(!m.watched) primary=`<button class="btn hot" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Mark watched</button>`;
     else if(m.dlWant&&!m.dl) primary=`<button class="btn" style="font-size:11px;padding:4px 8px;color:var(--cyan);border-color:rgba(95,212,208,.5)" data-mvdlgo="${m.id}">\uD83D\uDCE5 Mark downloaded</button><button class="btn" style="font-size:11px;padding:4px 7px" title="No download reminder for this one" data-mvskip="${m.id}">\u2715</button>`;
     else primary=`<button class="btn" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Unwatch</button>`;
-    h+=`<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:8px 2px">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${rel}</span>${m.dl?` <span class="mono" style="font-size:10px;color:var(--cyan)">\u2713 dl</span>`:""}</div>
-        ${m.watched&&m.watchedAt?`<div class="mono" style="font-size:10px;color:var(--faint)">watched ${m.watchedAt.slice(0,10)}</div>`:""}
+    const mOpen = movOpenId===m.id;
+    h+=`<div style="border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 2px">
+        <button data-mvopen="${m.id}" style="flex:1;min-width:0;background:none;border:none;padding:0;text-align:left;font-family:inherit;color:var(--text);cursor:pointer">
+          <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${rel||(m.manual?"date TBA":"")}</span>${m.dl?` <span class="mono" style="font-size:10px;color:var(--cyan)">\u2713 dl</span>`:""}</div>
+          ${m.watched&&m.watchedAt?`<div class="mono" style="font-size:10px;color:var(--faint)">watched ${m.watchedAt.slice(0,10)}</div>`:""}
+        </button>
+        ${primary}
+        ${movConfirmDel===m.id? `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdelyes="${m.id}">Yes, remove</button>`
+          : `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdel="${m.id}">\u2715</button>`}
       </div>
-      ${primary}
-      ${movConfirmDel===m.id? `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdelyes="${m.id}">Yes, remove</button>`
-        : `<button class="btn warn" style="font-size:11px;padding:4px 8px" data-mvdel="${m.id}">\u2715</button>`}
+      ${mOpen? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 2px 12px">
+        <span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">RELEASE DATE</span>
+        <input type="date" id="mvd-${m.id}" value="${m.releaseDate||""}" style="width:auto;padding:5px 8px;font-size:12px">
+        <button class="btn" data-mvdate="${m.id}">Save date</button>
+        ${isWdMovie(m.id)? `<button class="btn" data-mvref="${m.id}">&#10227; Refresh</button>`
+          : `<span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">MANUAL</span>`}
+        ${m.runtime? `<span class="mono" style="font-size:10px;color:var(--faint)">${m.runtime} min</span>`:""}
+      </div>`:""}
     </div>`;
   }
   if(list.length>shown.length) h+=`<div class="mono" style="font-size:11px;color:var(--faint);margin-top:10px">${list.length-shown.length} more. Narrow with the filter or change the sort to reach them.</div>`;
@@ -1117,6 +1151,22 @@ function bindMovies(){
     try{ const det=await wdDetails(hit.id); addMovieFromWd(hit,det); movResults=[]; render(); toast(`Added ${hit.label}.`); }
     catch(e){ toast("Details fetch failed — try again."); b.disabled=false; render(); }
   });
+  document.querySelectorAll("[data-mvmanual]").forEach(b=>b.onclick=manualMovieForm);
+  document.querySelectorAll("[data-mvopen]").forEach(b=>b.onclick=()=>{ movOpenId = movOpenId===b.dataset.mvopen? null : b.dataset.mvopen; movConfirmDel=null; render(); });
+  document.querySelectorAll("[data-mvdate]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvdate);
+    const inp=$("mvd-"+m.id); const v=inp? inp.value : "";
+    m.releaseDate = v||null; m.year = v? +v.slice(0,4) : null; m.updatedAt=Date.now(); save(); render();
+    toast(v? `${m.title} \u2014 release set to ${v}.` : `${m.title} \u2014 release date cleared.`); });
+  document.querySelectorAll("[data-mvref]").forEach(b=>b.onclick=async()=>{ const m=movieById(b.dataset.mvref);
+    if(!navigator.onLine){ toast("Refresh needs internet."); return; }
+    b.disabled=true;
+    try{ const det=await wdDetails(m.id.slice(3));
+      if(det.rel){ m.releaseDate=det.rel; m.year=+det.rel.slice(0,4); }
+      if(det.run) m.runtime=det.run;
+      m.updatedAt=Date.now(); save(); render();
+      toast(det.rel? `${m.title} \u2014 release ${det.rel}.` : `${m.title} \u2014 Wikidata still has no release date.`);
+    }catch(e){ b.disabled=false; toast("Refresh failed \u2014 check connection."); }
+  });
   document.querySelectorAll("[data-mvclear]").forEach(b=>b.onclick=()=>{ movResults=[]; render(); });
   document.querySelectorAll("[data-movtab]").forEach(b=>b.onclick=()=>{ movTab=b.dataset.movtab; movConfirmDel=null; render(); });
   document.querySelectorAll("[data-mvw]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvw);
@@ -1137,7 +1187,7 @@ async function movSearch(q){
   q=(q||"").trim(); if(!q||movBusy) return;
   if(!navigator.onLine){ toast("Movie search needs internet."); return; }
   movBusy=true; render();
-  try{ movResults=await wdSearch(q); if(!movResults.length) toast(`No results for "${q}".`); }
+  try{ movResults=await wdSearch(q); movSearched=true; if(!movResults.length) toast(`No results for "${q}" \u2014 you can add it manually below.`); }
   catch(e){ toast("Search failed — check connection."); }
   movBusy=false; render();
 }
