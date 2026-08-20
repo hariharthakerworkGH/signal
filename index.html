@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v34</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v35</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -305,7 +305,9 @@ async function fetchFullShow(showId, existingWatched){
   const bySeason = {};
   for(const ep of (det._embedded&&det._embedded.episodes)||[]){
     if(!ep.season||!ep.number) continue;
-    (bySeason[ep.season]=bySeason[ep.season]||[]).push({ e:ep.number, air:ep.airdate||null, ts:ep.airstamp||null, name:(ep.name||"").slice(0,60) });
+    (bySeason[ep.season]=bySeason[ep.season]||[]).push({ e:ep.number, air:ep.airdate||null,
+      ts: ep.airtime? (ep.airstamp||null) : null,
+      name:(ep.name||"").slice(0,60) });
   }
   const seasons = Object.keys(bySeason).map(Number).sort((a,b)=>a-b)
     .map(sn=>({ season:sn, eps:bySeason[sn].sort((a,b)=>a.e-b.e) }));
@@ -313,7 +315,8 @@ async function fetchFullShow(showId, existingWatched){
   const nx = det._embedded && det._embedded.nextepisode;
   const homeOn = (det.webChannel&&det.webChannel.name)||(det.network&&det.network.name)||null;
   const firstAir = det.premiered||null;
-  const hasAired = seasons.some(s=>s.eps.some(e=>epLive(e)));
+  const tz=((det.network&&det.network.country)||(det.webChannel&&det.webChannel.country)||{}).timezone||null;
+  const hasAired = seasons.some(s=>s.eps.some(e=>epLive(e, tz)));
   return {
     id: det.id, title: det.name,
     year: firstAir? +firstAir.slice(0,4): null,
@@ -325,7 +328,10 @@ async function fetchFullShow(showId, existingWatched){
     watchOn: homeOn? [homeOn]:[],
     firstAir,
     upcoming: !hasAired,
-    nextEp: (nx&&(nx.airstamp||nx.airdate))? { s:nx.season, e:nx.number, ts:nx.airstamp||null, date: nx.airstamp? localDate(nx.airstamp): nx.airdate }: null,
+    tz,
+    nextEp: (nx&&(nx.airstamp||nx.airdate))? { s:nx.season, e:nx.number,
+      ts: nx.airtime? (nx.airstamp||null) : null,
+      date: (nx.airtime&&nx.airstamp)? localDate(nx.airstamp): nx.airdate }: null,
     seasons,
     watched: existingWatched||{},
     lastSynced: Date.now()
@@ -334,13 +340,30 @@ async function fetchFullShow(showId, existingWatched){
 
 /* ================= derived ================= */
 const epK=(s,e)=>s+"-"+e;
-function epLive(ep){
-  if(ep.ts) return new Date(ep.ts)<=new Date();
-  return !!ep.air && ep.air<=todayISO();
+function tzOffsetMinutes(tz, at){
+  try{
+    const dtf=new Intl.DateTimeFormat("en-US",{timeZone:tz,hour12:false,year:"numeric",month:"2-digit",
+      day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    const p={}; for(const x of dtf.formatToParts(at)) if(x.type!=="literal") p[x.type]=x.value;
+    const asUTC=Date.UTC(+p.year,+p.month-1,+p.day,(+p.hour)%24,+p.minute,+p.second);
+    return Math.round((asUTC-at.getTime())/60000);
+  }catch(e){ return null; }
 }
-function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep); }
+function endOfLocalDayMs(dateStr, tz){
+  if(!dateStr) return Infinity;
+  const naive=Date.UTC(+dateStr.slice(0,4), +dateStr.slice(5,7)-1, +dateStr.slice(8,10), 23,59,59);
+  let off = tz? tzOffsetMinutes(tz, new Date(naive)) : null;
+  if(off===null) off = -7*60;
+  return naive - off*60000;
+}
+function epLive(ep, tz){
+  if(ep.ts) return new Date(ep.ts)<=new Date();
+  if(!ep.air) return false;
+  return Date.now() >= endOfLocalDayMs(ep.air, tz);
+}
+function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep, sh&&sh.tz); }
 function isUp(sh){
-  return !(sh.seasons&&sh.seasons.some(se=>se.eps.some(ep=>epLive(ep))));
+  return !(sh.seasons&&sh.seasons.some(se=>se.eps.some(ep=>epLive(ep, sh.tz))));
 }
 function localDate(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function epDate(ep){ return ep.ts? localDate(ep.ts): (ep.air||null); }
@@ -541,14 +564,14 @@ async function fetchDiscover(force){
     for(const ep of all||[]){
       if(ep.number!==1) continue;
       const show=(ep._embedded&&ep._embedded.show)||ep.show; if(!show) continue;
-      const d= ep.airstamp? localDate(ep.airstamp): (ep.airdate||null);
+      const d= (ep.airtime&&ep.airstamp)? localDate(ep.airstamp): (ep.airdate||null);
       if(!d||d<today||d>limISO) continue;
       const hits=platformMatch(show.webChannel&&show.webChannel.name);
       if(!hits.length) continue;
       if(!found[show.id]||d<found[show.id].date) found[show.id]={
         id:show.id, title:show.name,
         poster:(show.image&&show.image.medium)||null,
-        date:d, season:ep.season, ts: ep.airstamp||null,
+        date:d, season:ep.season, ts: ep.airtime? (ep.airstamp||null) : null,
         platform:hits[0].label
       };
     }
@@ -677,9 +700,8 @@ function soonInfo(sh){
   }
   else if(sh.nextEp){ ts=sh.nextEp.ts; dateStr=sh.nextEp.date; tag="S"+pad(sh.nextEp.s)+"E"+pad(sh.nextEp.e); }
   if(!ts&&!dateStr) return null;
-  const ms = ts? new Date(ts).getTime() : new Date(dateStr+"T00:00:00").getTime();
-  if(ts){ if(ms<now-3600e3) return null; }
-  else if(dateStr<todayISO()) return null;
+  const ms = ts? new Date(ts).getTime() : endOfLocalDayMs(dateStr, sh.tz);
+  if(ms<now-3600e3) return null;
   const n=daysAway(dateStr||localDate(ts));
   let label = n<=0? (ts? fmtTime(ts):"Today") : n===1? "Tom" : (n<=99? n+"d": "");
   return label? {ms, label, tag, dateStr, ts} : null;
@@ -687,7 +709,7 @@ function soonInfo(sh){
 function lastAiredMs(sh){
   let m=0;
   for(const se of sh.seasons) for(const ep of se.eps){
-    if(!epLive(ep)) continue;
+    if(!epLive(ep, sh.tz)) continue;
     const t= ep.ts? new Date(ep.ts).getTime() : (ep.air? new Date(ep.air+"T00:00:00").getTime():0);
     if(t>m) m=t;
   }
@@ -1456,7 +1478,7 @@ async function ttRun(sel){
       } else merged++;
       let hit=0;
       for(const seas of target.seasons) for(const ep of seas.eps){
-        if(it.eps[seas.season+"-"+ep.e] && epLive(ep)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
+        if(it.eps[seas.season+"-"+ep.e] && epLive(ep, target.tz)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
       }
       if(hit===0 && !db.find(x=>x.id===found.id && x!==target)){
         skipped.push({n:it.name, r:"added, but episode numbering did not match ("+Object.keys(it.eps).length+" records)"});
