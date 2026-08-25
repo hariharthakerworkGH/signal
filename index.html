@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v40</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v41</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -603,7 +603,9 @@ async function discDetails(it){
 }
 async function fetchMovieDiscover(force){
   if(mdiscLoading) return;
-  if(!force && mdiscCache && Date.now()-mdiscCache.ts<24*3600*1000){ render(); return; }
+  if(!force && mdiscCache && mdiscCache.v===2 && Date.now()-mdiscCache.ts<24*3600*1000){
+    render(); fetchPosters(mdiscCache.items); return;   // top up any posters still missing
+  }
   if(!navigator.onLine){ toast("Offline — movie releases need internet."); return; }
   mdiscLoading=true; render();
   try{
@@ -629,7 +631,7 @@ async function fetchMovieDiscover(force){
         ? decodeURIComponent(b.article.value.split("/").pop()) : null;
       if(!map[qid]||d<map[qid].date) map[qid]={qid, title:label, date:d, article:art};
     }
-    mdiscCache={ts:Date.now(), items:Object.values(map).sort((a,b)=>a.date<b.date?-1:1)};
+    mdiscCache={v:2, ts:Date.now(), items:Object.values(map).sort((a,b)=>a.date<b.date?-1:1)};
     store("signal.mdiscover", JSON.stringify(mdiscCache));
     mdiscLoading=false; render();          // show the list first, posters fill in after
     await fetchPosters(mdiscCache.items);
@@ -666,7 +668,9 @@ function renderMovieDiscover(){
   if(mAll.length&&!items.length) h+=`<div class="empty">Every upcoming film found is already in your movies list.</div>`;
   for(const it of items){
     h+=`<div class="result" style="cursor:default">
-      ${it.poster? `<img src="${esc(it.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`:""}
+      ${it.poster
+        ? `<img src="${esc(it.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
+        : `<span style="width:42px;height:63px;border-radius:6px;background:#101120;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:var(--faint);flex-shrink:0">${esc((it.title||"?").slice(0,1).toUpperCase())}</span>`}
       <span style="flex:1;min-width:0"><b>${esc(it.title)}</b><br>
         <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(it.date)}</span></span>
       <a class="btn" style="text-decoration:none;flex-shrink:0" title="Where is it releasing?" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" release date India theatre OTT")}" target="_blank" rel="noopener">\uD83D\uDD0E</a>
