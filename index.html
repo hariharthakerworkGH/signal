@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v35</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v37</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -436,7 +436,7 @@ async function syncShow(id, silent){
 async function syncAll(){
   if(syncing) return;
   if(!navigator.onLine){ toast("Offline — sync needs internet."); return; }
-  const targets=db.filter(s=>s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series");
+  const targets=db.filter(s=>!dropped(s)&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series"));
   if(!targets.length){ toast("Nothing active to sync."); return; }
   syncing=true;
   for(let i=0;i<targets.length;i++){
@@ -542,7 +542,10 @@ const PLATFORMS=[
 let myPlatforms=[]; try{ myPlatforms=JSON.parse(store("signal.platforms")||"[]"); }catch(e){}
 let discCache=null; try{ discCache=JSON.parse(store("signal.discover")||"null"); }catch(e){}
 let discLoading=false;
-let discOpen=null, discDetail={}; // detail cache is deliberately in memory only, never stored
+let discOpen=null, discDetail={};
+let discTab="shows";
+let mdiscCache=null; try{ mdiscCache=JSON.parse(store("signal.mdiscover")||"null"); }catch(e){}
+let mdiscLoading=false; // detail cache is deliberately in memory only, never stored
 
 function platformMatch(channelName){
   const c=(channelName||"").toLowerCase();
@@ -598,7 +601,60 @@ async function discDetails(it){
   }catch(e){ discDetail[it.id]={error:true}; }
   render();
 }
+async function fetchMovieDiscover(force){
+  if(mdiscLoading) return;
+  if(!force && mdiscCache && Date.now()-mdiscCache.ts<24*3600*1000){ render(); return; }
+  if(!navigator.onLine){ toast("Offline — movie releases need internet."); return; }
+  mdiscLoading=true; render();
+  try{
+    const iso=(ms)=>new Date(ms).toISOString().slice(0,10)+"T00:00:00Z";
+    const q=`SELECT ?f ?fLabel ?d ?sl WHERE {
+  ?f wdt:P31 wd:Q11424; wdt:P577 ?d; wdt:P345 ?imdb; wikibase:sitelinks ?sl .
+  FILTER(?d >= "${iso(Date.now())}"^^xsd:dateTime && ?d <= "${iso(Date.now()+90*864e5)}"^^xsd:dateTime)
+  FILTER(?sl >= 4)
+  FILTER NOT EXISTS { ?f wdt:P577 ?older . FILTER(?older < "${iso(Date.now()-365*864e5)}"^^xsd:dateTime) }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+} ORDER BY DESC(?sl) LIMIT 60`;
+    const r=await fetch("https://query.wikidata.org/sparql?format=json&query="+encodeURIComponent(q),
+      {headers:{Accept:"application/sparql-results+json"}});
+    if(!r.ok) throw new Error("wdqs");
+    const j=await r.json();
+    const map={};
+    for(const b of (j.results&&j.results.bindings)||[]){
+      const label=b.fLabel&&b.fLabel.value; if(!label||/^Q\d+$/.test(label)) continue;
+      const qid=b.f.value.split("/").pop(), d=b.d.value.slice(0,10);
+      if(!map[qid]||d<map[qid].date) map[qid]={qid, title:label, date:d};
+    }
+    mdiscCache={ts:Date.now(), items:Object.values(map).sort((a,b)=>a.date<b.date?-1:1)};
+    store("signal.mdiscover", JSON.stringify(mdiscCache));
+  }catch(e){ toast("Movie releases unavailable right now — Wikidata may be busy."); }
+  mdiscLoading=false; render();
+}
+function renderMovieDiscover(){
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="sect mono" style="margin:0">RELEASING · NEXT 90 DAYS</div>
+    <button class="btn" data-mdiscrefresh="1" ${mdiscLoading?"disabled":""}>${mdiscLoading?"…":"⟳"}</button></div>`;
+  if(mdiscLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Querying Wikidata. This one can take up to a minute.</div>`;
+  const items=(mdiscCache&&mdiscCache.items)||[];
+  if(!items.length&&!mdiscLoading) return h+`<div class="empty">No upcoming films loaded yet. Tap \u27F3 to fetch them. Ranked by how widely Wikipedia covers each film, so big releases come first.</div>`;
+  for(const it of items){
+    const have=movies.some(m=>m.id==="mv-"+it.qid||(m.title||"").toLowerCase()===it.title.toLowerCase());
+    h+=`<div class="result" style="cursor:default">
+      <span style="flex:1;min-width:0"><b>${esc(it.title)}</b><br>
+        <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(it.date)}</span></span>
+      ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
+            :`<button class="btn hot" data-mdiscadd="${it.qid}" style="flex-shrink:0">+ Add</button>`}</div>`;
+  }
+  if(mdiscCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Data from Wikidata, refreshed ${agoLabel(mdiscCache.ts)} · festival-only and re-release entries filtered out</div>`;
+  return h;
+}
 function renderDiscover(){
+  const tabs=`<div style="margin-bottom:12px">
+    <button class="tab${discTab==="shows"?" act":""}" data-disctab="shows" style="font-size:12px;margin-right:14px">SHOWS</button>
+    <button class="tab${discTab==="movies"?" act":""}" data-disctab="movies" style="font-size:12px">MOVIES</button></div>`;
+  return tabs + (discTab==="movies"? renderMovieDiscover() : renderShowDiscover());
+}
+function renderShowDiscover(){
   if(!myPlatforms.length)
     return `<div class="empty">Pick your subscriptions first — open settings (⚙) and tick Netflix, Prime, JioHotstar etc. Discover will list new premieres on them.</div>`;
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -643,10 +699,11 @@ function renderDiscover(){
 function render(){
   let eps=0,mins=0,done=0,watching=0,backlog=0;
   db.forEach(s=>{ const w=wCount(s); eps+=w; mins+=w*(s.runtime||40);
-    const a=airedTotal(s); backlog+=Math.max(0,a-w);
+    const a=airedTotal(s); if(!dropped(s)) backlog+=Math.max(0,a-w);
     if(a>0&&w>=a&&!isUp(s)) done++; else if(w>0) watching++; });
   let todayCount=0; const _t=todayISO();
-  db.forEach(sh=>{ if(isUp(sh)){ const si0=soonInfo(sh); if(((si0&&si0.dateStr)||sh.firstAir)===_t) todayCount++; return; }
+  db.forEach(sh=>{ if(dropped(sh)) return;
+    if(isUp(sh)){ const si0=soonInfo(sh); if(((si0&&si0.dateStr)||sh.firstAir)===_t) todayCount++; return; }
     for(const se of sh.seasons) for(const ep of se.eps) if(epDate(ep)===_t){ todayCount++; return; } });
   let legacy=null; try{ legacy=JSON.parse(store("signal.legacy")||"null"); }catch(e){}
   $("stats").innerHTML=db.length? `
@@ -668,7 +725,7 @@ function render(){
   $("backupNag").insertAdjacentHTML("beforebegin","");
   $("statsCard").innerHTML=statsCard;
 
-  const stale=db.some(s=>(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
+  const stale=db.some(s=>!dropped(s)&&(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
   if(!syncing&&!cloudBusy) $("statusLine").textContent = stale? "\u26A0 Air dates 3+ days old — hit Sync all to refresh.":"";
 
   const nagDue = db.length>0 && !ghToken
@@ -715,7 +772,9 @@ function lastAiredMs(sh){
   }
   return m;
 }
+function dropped(sh){ return sh.bucketOverride==="dropped"; }
 function catOf(sh){
+  if(dropped(sh)) return "done";   // stopped following: keeps history, leaves active tracking
   if(isUp(sh)) return "waiting";
   if(airedTotal(sh)-wCount(sh)>0) return "watching";
   if(sh.bucketOverride==="done") return "done";
@@ -768,7 +827,7 @@ function renderShows(){
       }
       h+=`</section>`;
     }
-    const soon=db.map(sh=>({sh,si:soonInfo(sh)}))
+    const soon=db.filter(x=>!dropped(x)).map(sh=>({sh,si:soonInfo(sh)}))
       .filter(x=>x.si&&x.si.ms-Date.now()<=7*24*3600e3)
       .sort((a,b)=>a.si.ms-b.si.ms).slice(0,8);
     if(soon.length&&!schedOpen){
@@ -782,7 +841,7 @@ function renderShows(){
       h+=`</section>`;
     }
     const isFresh=(v)=>typeof v==="number"&&v>1;
-    const dlPend=db.filter(dlOn).map(x=>{
+    const dlPend=db.filter(x=>dlOn(x)&&!dropped(x)).map(x=>{
       let n=0; for(const se of x.seasons) for(const ep of se.eps){ const k=epK(se.season,ep.e);
         if(isFresh(x.watched[k])&&!(x.dl&&x.dl[k])) n++; }
       return {sh:x,n};
@@ -821,7 +880,7 @@ function renderShows(){
         h+=`</section>`;
       }
     }
-    const allSched=db.map(sh=>({sh,si:soonInfo(sh)})).filter(x=>x.si).sort((a,b)=>a.si.ms-b.si.ms);
+    const allSched=db.filter(x=>!dropped(x)).map(sh=>({sh,si:soonInfo(sh)})).filter(x=>x.si).sort((a,b)=>a.si.ms-b.si.ms);
     if(allSched.length){
       h+=`<div style="margin:0 0 20px"><button class="btn" data-schedtoggle="1">${schedOpen?"Hide full schedule":"Full schedule ("+allSched.length+") \u25BE"}</button></div>`;
       if(schedOpen){
@@ -901,7 +960,7 @@ function renderShows(){
     const a=airedTotal(sh), t=totalEps(sh), w=wCount(sh);
     const pct=a?Math.round(w/a*100):0;
     const isOpen=openId===sh.id, complete=a>0&&w>=a&&!isUp(sh);
-    const status=sh.manual?["MANUAL","var(--faint)"]:isUp(sh)?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
+    const status=dropped(sh)?["DROPPED","var(--red)"]:sh.manual?["MANUAL","var(--faint)"]:isUp(sh)?["UPCOMING","var(--violet)"]:complete?["CAUGHT UP","var(--amber)"]
       :(sh.inProduction||sh.tmdbStatus==="Returning Series")?["ON AIR","var(--cyan)"]:["ENDED","var(--faint)"];
     h+=`<div class="card" ${isOpen?'style="border-color:var(--faint)"':""}>
       <button class="cardhead" data-open="${sh.id}">
@@ -933,8 +992,12 @@ function renderShows(){
         if(!sh.manual) h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
         h+=`<button class="btn" data-dltrack="${sh.id}">\uD83D\uDCE5 Download reminders: ${dlOn(sh)?"on":"off"}</button>`;
         const cat3=catOf(sh);
-        if(cat3==="waiting") h+=`<button class="btn" data-bucket="${sh.id}:done">Move to Done</button>`;
-        else if(cat3==="done") h+=`<button class="btn" data-bucket="${sh.id}:active">Move to Up to date</button>`;
+        if(dropped(sh)) h+=`<button class="btn" data-bucket="${sh.id}:resume">Resume watching</button>`;
+        else {
+          if(cat3==="waiting") h+=`<button class="btn" data-bucket="${sh.id}:done">Move to Done</button>`;
+          else if(cat3==="done") h+=`<button class="btn" data-bucket="${sh.id}:active">Move to Up to date</button>`;
+          h+=`<button class="btn" data-bucket="${sh.id}:dropped">Drop show</button>`;
+        }
       }
       h+= confirmDel===sh.id
         ? `<button class="btn warn" data-delyes="${sh.id}">Yes, remove</button><button class="btn" data-delno="1">Keep it</button>`
@@ -1058,7 +1121,10 @@ function bindView(){
     toast(dlOn(sh)? "Download reminders on — new watches will ask about downloading.":"Download reminders off for this show (marks kept)."); });
   document.querySelectorAll("[data-mm]").forEach(b=>b.onclick=()=>{ const [id,mode]=b.dataset.mm.split(":"); markMode[+id]=mode; render(); });
   document.querySelectorAll("[data-bucket]").forEach(b=>b.onclick=()=>{ const [id,mode]=b.dataset.bucket.split(":"); const sh=db.find(x=>x.id===+id);
-    sh.bucketOverride=mode; touch(sh); save(); render(); toast(`${sh.title} — filed under ${mode==="done"?"DONE":"UP TO DATE"}.`); });
+    sh.bucketOverride = (mode==="resume")? null : mode; touch(sh); save(); render();
+    toast(mode==="dropped"? `${sh.title} dropped. Your watched episodes are kept.`
+      : mode==="resume"? `${sh.title} — following again.`
+      : `${sh.title} — filed under ${mode==="done"?"DONE":"UP TO DATE"}.`); });
   document.querySelectorAll("[data-unlock]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.unlock); sh.unlockAll=!sh.unlockAll; touch(sh); save(); render(); toast(sh.unlockAll?"All cells unlocked for this show — you're on manual control.":"Air-date locking restored."); });
   document.querySelectorAll("[data-sync]").forEach(b=>b.onclick=()=>syncShow(+b.dataset.sync));
   document.querySelectorAll("[data-manadd]").forEach(b=>b.onclick=()=>manualAddEps(+b.dataset.manadd));
@@ -1073,6 +1139,14 @@ function bindView(){
     render();
     if(need){ const it=((discCache&&discCache.items)||[]).find(x=>x.id===id); if(it) discDetails(it); }
   });
+  document.querySelectorAll("[data-disctab]").forEach(b=>b.onclick=()=>{ discTab=b.dataset.disctab; render();
+    if(discTab==="movies") fetchMovieDiscover(false); });
+  document.querySelectorAll("[data-mdiscrefresh]").forEach(b=>b.onclick=()=>fetchMovieDiscover(true));
+  document.querySelectorAll("[data-mdiscadd]").forEach(b=>b.onclick=()=>{
+    const it=((mdiscCache&&mdiscCache.items)||[]).find(x=>x.qid===b.dataset.mdiscadd); if(!it) return;
+    movies.unshift({ id:"mv-"+it.qid, title:it.title, year:+it.date.slice(0,4), releaseDate:it.date, runtime:null,
+      watched:false, watchedAt:null, dlWant:false, dl:false, addedAt:Date.now(), updatedAt:Date.now() });
+    save(); render(); toast(`${it.title} added to your watchlist.`); });
   document.querySelectorAll("[data-discrefresh]").forEach(b=>b.onclick=()=>fetchDiscover(true));
 }
 
@@ -1143,9 +1217,11 @@ function renderMovies(){
   const soon=movies.filter(m=>m.releaseDate&&daysAway(m.releaseDate)>0).sort((a,b)=>a.releaseDate<b.releaseDate?-1:1).slice(0,4);
   if(soon.length){
     h+=`<div class="sect mono" style="color:var(--violet)">RELEASING SOON</div>`;
-    for(const m of soon) h+=`<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding:8px 2px;margin-bottom:2px">
-      <span style="font-weight:700;font-size:14px">${esc(m.title)}</span>
-      <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(m.releaseDate)}</span></div>`;
+    for(const m of soon) h+=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:8px 2px;margin-bottom:2px">
+      <span style="font-weight:700;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)}</span>
+      <span class="mono" style="font-size:11px;color:var(--violet);flex-shrink:0">${fmtDate(m.releaseDate)}</span>
+      ${movConfirmDel===m.id? `<button class="btn warn" style="font-size:11px;padding:4px 8px;flex-shrink:0" data-mvdelyes="${m.id}">Yes, remove</button>`
+        : `<button class="btn warn" style="font-size:11px;padding:4px 8px;flex-shrink:0" data-mvdel="${m.id}">\u2715</button>`}</div>`;
     h+=`<div style="height:14px"></div>`;
   }
   const wl=movies.filter(m=>!m.watched), wd=movies.filter(m=>m.watched);
@@ -1192,6 +1268,8 @@ function renderMovies(){
         <span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">RELEASE DATE</span>
         <input type="date" id="mvd-${m.id}" value="${m.releaseDate||""}" style="width:auto;padding:5px 8px;font-size:12px">
         <button class="btn" data-mvdate="${m.id}">Save date</button>
+        ${m.manual? `<input id="mvt-${m.id}" value="${esc(m.title)}" placeholder="Title" style="width:auto;padding:5px 8px;font-size:12px">
+          <button class="btn" data-mvtitle="${m.id}">Save title</button>`:""}
         ${isWdMovie(m.id)? `<button class="btn" data-mvref="${m.id}">&#10227; Refresh</button>`
           : `<span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">MANUAL</span>`}
         ${m.runtime? `<span class="mono" style="font-size:10px;color:var(--faint)">${m.runtime} min</span>`:""}
@@ -1223,6 +1301,10 @@ function bindMovies(){
     const inp=$("mvd-"+m.id); const v=inp? inp.value : "";
     m.releaseDate = v||null; m.year = v? +v.slice(0,4) : null; m.updatedAt=Date.now(); save(); render();
     toast(v? `${m.title} \u2014 release set to ${v}.` : `${m.title} \u2014 release date cleared.`); });
+  document.querySelectorAll("[data-mvtitle]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvtitle);
+    const inp=$("mvt-"+m.id); const v=inp? inp.value.trim():"";
+    if(!v){ toast("A title is required."); return; }
+    m.title=v; m.updatedAt=Date.now(); save(); render(); toast("Title updated."); });
   document.querySelectorAll("[data-mvref]").forEach(b=>b.onclick=async()=>{ const m=movieById(b.dataset.mvref);
     if(!navigator.onLine){ toast("Refresh needs internet."); return; }
     b.disabled=true;
@@ -1556,7 +1638,7 @@ function setTab(t){
   $("tabShows").classList.toggle("act",t==="shows");
   $("tabMov").classList.toggle("act",t==="movies");
   $("tabDisc").classList.toggle("act",t==="discover");
-  if(t==="discover") fetchDiscover(false); else render();
+  if(t==="discover"){ render(); if(discTab==="movies") fetchMovieDiscover(false); else fetchDiscover(false); } else render();
 }
 $("tabShows").onclick=()=>setTab("shows");
 $("tabMov").onclick=()=>setTab("movies");
@@ -1585,7 +1667,7 @@ updateCloudBadge();
   await pullCloud(true);
   if(!navigator.onLine) return;
   const STALE = 12*3600*1000;
-  const targets = db.filter(s=>(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series")
+  const targets = db.filter(s=>!dropped(s)&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series")
                             && (!s.lastSynced || Date.now()-s.lastSynced>STALE));
   if(!targets.length) return;
   syncing=true;
