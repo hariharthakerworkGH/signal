@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v38</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v40</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -608,11 +608,12 @@ async function fetchMovieDiscover(force){
   mdiscLoading=true; render();
   try{
     const iso=(ms)=>new Date(ms).toISOString().slice(0,10)+"T00:00:00Z";
-    const q=`SELECT ?f ?fLabel ?d ?sl WHERE {
+    const q=`SELECT ?f ?fLabel ?d ?sl ?article WHERE {
   ?f wdt:P31 wd:Q11424; wdt:P577 ?d; wdt:P345 ?imdb; wikibase:sitelinks ?sl .
   FILTER(?d >= "${iso(Date.now())}"^^xsd:dateTime && ?d <= "${iso(Date.now()+90*864e5)}"^^xsd:dateTime)
-  FILTER(?sl >= 4)
+  FILTER(?sl >= 4 || EXISTS { ?f wdt:P495 wd:Q668 } || EXISTS { ?f wdt:P364 wd:Q1568 })
   FILTER NOT EXISTS { ?f wdt:P577 ?older . FILTER(?older < "${iso(Date.now()-365*864e5)}"^^xsd:dateTime) }
+  OPTIONAL { ?article schema:about ?f ; schema:isPartOf <https://en.wikipedia.org/> . }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 } ORDER BY DESC(?sl) LIMIT 60`;
     mdiscError=null;
@@ -624,18 +625,39 @@ async function fetchMovieDiscover(force){
     for(const b of (j.results&&j.results.bindings)||[]){
       const label=b.fLabel&&b.fLabel.value; if(!label||/^Q\d+$/.test(label)) continue;
       const qid=b.f.value.split("/").pop(), d=b.d.value.slice(0,10);
-      if(!map[qid]||d<map[qid].date) map[qid]={qid, title:label, date:d};
+      const art=b.article&&b.article.value
+        ? decodeURIComponent(b.article.value.split("/").pop()) : null;
+      if(!map[qid]||d<map[qid].date) map[qid]={qid, title:label, date:d, article:art};
     }
     mdiscCache={ts:Date.now(), items:Object.values(map).sort((a,b)=>a.date<b.date?-1:1)};
     store("signal.mdiscover", JSON.stringify(mdiscCache));
+    mdiscLoading=false; render();          // show the list first, posters fill in after
+    await fetchPosters(mdiscCache.items);
   }catch(e){ mdiscError=(e&&e.message)||"request failed"; toast("Movie releases unavailable right now."); }
   mdiscLoading=false; render();
+}
+async function fetchPosters(items){
+  const pending=items.filter(x=>x.article&&x.poster===undefined);
+  if(!pending.length) return;
+  let i=0;
+  const worker=async()=>{
+    while(i<pending.length){
+      const it=pending[i++];
+      try{
+        const r=await fetch("https://en.wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(it.article.replace(/ /g,"_")));
+        it.poster = r.ok? (((await r.json()).thumbnail||{}).source||null) : null;
+      }catch(e){ it.poster=null; }
+    }
+  };
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  store("signal.mdiscover", JSON.stringify(mdiscCache));
+  render();
 }
 function renderMovieDiscover(){
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div class="sect mono" style="margin:0">RELEASING · NEXT 90 DAYS</div>
     <button class="btn" data-mdiscrefresh="1" ${mdiscLoading?"disabled":""}>${mdiscLoading?"…":"⟳"}</button></div>`;
-  if(mdiscLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Querying Wikidata. This takes 10 to 30 seconds, then it is cached for a day.</div>`;
+  if(mdiscLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Querying Wikidata. This takes 10 to 30 seconds, then posters load and it is cached for a day.</div>`;
   if(mdiscError&&!mdiscLoading) h+=`<div style="border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--red)">Could not load releases: ${esc(mdiscError)}. Tap \u27F3 to retry.</div>`;
   const mAll=(mdiscCache&&mdiscCache.items)||[];
   const items=mAll.filter(it=>!movies.some(m=>m.id==="mv-"+it.qid||(m.title||"").toLowerCase()===it.title.toLowerCase()));
@@ -644,6 +666,7 @@ function renderMovieDiscover(){
   if(mAll.length&&!items.length) h+=`<div class="empty">Every upcoming film found is already in your movies list.</div>`;
   for(const it of items){
     h+=`<div class="result" style="cursor:default">
+      ${it.poster? `<img src="${esc(it.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`:""}
       <span style="flex:1;min-width:0"><b>${esc(it.title)}</b><br>
         <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(it.date)}</span></span>
       <a class="btn" style="text-decoration:none;flex-shrink:0" title="Where is it releasing?" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" release date India theatre OTT")}" target="_blank" rel="noopener">\uD83D\uDD0E</a>
