@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v37</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v38</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -545,7 +545,7 @@ let discLoading=false;
 let discOpen=null, discDetail={};
 let discTab="shows";
 let mdiscCache=null; try{ mdiscCache=JSON.parse(store("signal.mdiscover")||"null"); }catch(e){}
-let mdiscLoading=false; // detail cache is deliberately in memory only, never stored
+let mdiscLoading=false, mdiscError=null; // detail cache is deliberately in memory only, never stored
 
 function platformMatch(channelName){
   const c=(channelName||"").toLowerCase();
@@ -615,9 +615,10 @@ async function fetchMovieDiscover(force){
   FILTER NOT EXISTS { ?f wdt:P577 ?older . FILTER(?older < "${iso(Date.now()-365*864e5)}"^^xsd:dateTime) }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 } ORDER BY DESC(?sl) LIMIT 60`;
+    mdiscError=null;
     const r=await fetch("https://query.wikidata.org/sparql?format=json&query="+encodeURIComponent(q),
       {headers:{Accept:"application/sparql-results+json"}});
-    if(!r.ok) throw new Error("wdqs");
+    if(!r.ok) throw new Error("Wikidata replied "+r.status);
     const j=await r.json();
     const map={};
     for(const b of (j.results&&j.results.bindings)||[]){
@@ -627,24 +628,28 @@ async function fetchMovieDiscover(force){
     }
     mdiscCache={ts:Date.now(), items:Object.values(map).sort((a,b)=>a.date<b.date?-1:1)};
     store("signal.mdiscover", JSON.stringify(mdiscCache));
-  }catch(e){ toast("Movie releases unavailable right now — Wikidata may be busy."); }
+  }catch(e){ mdiscError=(e&&e.message)||"request failed"; toast("Movie releases unavailable right now."); }
   mdiscLoading=false; render();
 }
 function renderMovieDiscover(){
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div class="sect mono" style="margin:0">RELEASING · NEXT 90 DAYS</div>
     <button class="btn" data-mdiscrefresh="1" ${mdiscLoading?"disabled":""}>${mdiscLoading?"…":"⟳"}</button></div>`;
-  if(mdiscLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Querying Wikidata. This one can take up to a minute.</div>`;
-  const items=(mdiscCache&&mdiscCache.items)||[];
-  if(!items.length&&!mdiscLoading) return h+`<div class="empty">No upcoming films loaded yet. Tap \u27F3 to fetch them. Ranked by how widely Wikipedia covers each film, so big releases come first.</div>`;
+  if(mdiscLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Querying Wikidata. This takes 10 to 30 seconds, then it is cached for a day.</div>`;
+  if(mdiscError&&!mdiscLoading) h+=`<div style="border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--red)">Could not load releases: ${esc(mdiscError)}. Tap \u27F3 to retry.</div>`;
+  const mAll=(mdiscCache&&mdiscCache.items)||[];
+  const items=mAll.filter(it=>!movies.some(m=>m.id==="mv-"+it.qid||(m.title||"").toLowerCase()===it.title.toLowerCase()));
+  const mHidden=mAll.length-items.length;
+  if(!mAll.length&&!mdiscLoading&&!mdiscError) return h+`<div class="empty">No upcoming films loaded yet. Tap \u27F3 to fetch them. Ranked by how widely Wikipedia covers each film, so big releases come first.</div>`;
+  if(mAll.length&&!items.length) h+=`<div class="empty">Every upcoming film found is already in your movies list.</div>`;
   for(const it of items){
-    const have=movies.some(m=>m.id==="mv-"+it.qid||(m.title||"").toLowerCase()===it.title.toLowerCase());
     h+=`<div class="result" style="cursor:default">
       <span style="flex:1;min-width:0"><b>${esc(it.title)}</b><br>
         <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(it.date)}</span></span>
-      ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
-            :`<button class="btn hot" data-mdiscadd="${it.qid}" style="flex-shrink:0">+ Add</button>`}</div>`;
+      <a class="btn" style="text-decoration:none;flex-shrink:0" title="Where is it releasing?" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" release date India theatre OTT")}" target="_blank" rel="noopener">\uD83D\uDD0E</a>
+      <button class="btn hot" data-mdiscadd="${it.qid}" style="flex-shrink:0">+ Add</button></div>`;
   }
+  if(mHidden) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">${mHidden} already in your movies list, hidden</div>`;
   if(mdiscCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Data from Wikidata, refreshed ${agoLabel(mdiscCache.ts)} · festival-only and re-release entries filtered out</div>`;
   return h;
 }
@@ -661,11 +666,13 @@ function renderShowDiscover(){
     <div class="sect mono" style="margin:0">PREMIERES · NEXT 60 DAYS · ${myPlatforms.map(id=>PLATFORMS.find(p=>p.id===id).label).join(" / ")}</div>
     <button class="btn" data-discrefresh="1" ${discLoading?"disabled":""}>${discLoading?"…":"⟳"}</button></div>`;
   if(discLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Downloading the full schedule (a few MB, once a day)…</div>`;
-  const items=(discCache&&discCache.items)||[];
-  if(!items.length&&!discLoading)
+  const dAll=(discCache&&discCache.items)||[];
+  const items=dAll.filter(it=>!db.some(s=>s.id===it.id));
+  const dHidden=dAll.length-items.length;
+  if(!dAll.length&&!discLoading)
     return h+`<div class="empty">No premieres found on your platforms in the next 60 days. Only shows whose home platform matches count — licensed imports won't appear.</div>`;
+  if(dAll.length&&!items.length) h+=`<div class="empty">Every premiere on your platforms is already in your library.</div>`;
   for(const it of items){
-    const have=db.some(s=>s.id===it.id);
     const open=discOpen===it.id, d=discDetail[it.id];
     let panel="";
     if(open){
@@ -685,12 +692,12 @@ function renderShowDiscover(){
         <button data-discopen="${it.id}" style="flex:1;min-width:0;background:none;border:none;padding:0;text-align:left;font-family:inherit;color:var(--text);cursor:pointer"><b>${esc(it.title)}</b>
           <span class="mono" style="font-size:11px;color:var(--violet)"> S${it.season} · ${fmtDate(it.date)}${it.ts?" · "+fmtTime(it.ts):""}</span><br>
           <span class="chip">${esc(it.platform)}</span></button>
-        ${have?`<span class="mono" style="font-size:10px;color:var(--faint)">ADDED</span>`
-              :`<button class="btn hot" data-discadd="${it.id}" style="flex-shrink:0">+ Add</button>`}
+        <button class="btn hot" data-discadd="${it.id}" style="flex-shrink:0">+ Add</button>
       </div>
       ${open? `<div style="border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;padding:10px 12px;margin-bottom:8px">${panel}</div>`:""}
     </div>`;
   }
+  if(dHidden) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">${dHidden} already in your library, hidden</div>`;
   if(discCache) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">Refreshed ${agoLabel(discCache.ts)} · original-platform matches only · listings thin out beyond ~a month, platforms announce late</div>`;
   return h;
 }
