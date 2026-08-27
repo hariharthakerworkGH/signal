@@ -84,7 +84,7 @@
   <header style="margin-bottom:16px">
     <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v41</span></h1>
+      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v43</span></h1>
       <div>
         <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
@@ -276,8 +276,7 @@ let viewMode = store("signal.view")||"grid";
 let schedOpen = false;
 let dlOpen = false;
 let dlShowAll = {}; // showId -> true when chip list fully expanded
-let dlPrompt = null;
-let bulkDlPrompt = null; // {id, season} | {id, all:true} — after a bulk watch on a reminders-on show // {id,s,e} — just-watched ep on a tracked show awaiting download mark
+let dlPrompt = null; // {id,s,e} — just-watched episode awaiting its download answer
 let statsOpen = false;
 let showFilter = "";
 let showSort = store("signal.sort")||"auto";   // auto | az | recent
@@ -316,7 +315,8 @@ async function fetchFullShow(showId, existingWatched){
   const homeOn = (det.webChannel&&det.webChannel.name)||(det.network&&det.network.name)||null;
   const firstAir = det.premiered||null;
   const tz=((det.network&&det.network.country)||(det.webChannel&&det.webChannel.country)||{}).timezone||null;
-  const hasAired = seasons.some(s=>s.eps.some(e=>epLive(e, tz)));
+  const airKind = det.webChannel? "web" : "net";
+  const hasAired = seasons.some(s=>s.eps.some(e=>epLive(e, tz, airKind)));
   return {
     id: det.id, title: det.name,
     year: firstAir? +firstAir.slice(0,4): null,
@@ -328,7 +328,7 @@ async function fetchFullShow(showId, existingWatched){
     watchOn: homeOn? [homeOn]:[],
     firstAir,
     upcoming: !hasAired,
-    tz,
+    tz, airKind,
     nextEp: (nx&&(nx.airstamp||nx.airdate))? { s:nx.season, e:nx.number,
       ts: nx.airtime? (nx.airstamp||null) : null,
       date: (nx.airtime&&nx.airstamp)? localDate(nx.airstamp): nx.airdate }: null,
@@ -349,21 +349,27 @@ function tzOffsetMinutes(tz, at){
     return Math.round((asUTC-at.getTime())/60000);
   }catch(e){ return null; }
 }
-function endOfLocalDayMs(dateStr, tz){
+function localDayMs(dateStr, tz, atEnd){
   if(!dateStr) return Infinity;
-  const naive=Date.UTC(+dateStr.slice(0,4), +dateStr.slice(5,7)-1, +dateStr.slice(8,10), 23,59,59);
+  const naive= atEnd
+    ? Date.UTC(+dateStr.slice(0,4), +dateStr.slice(5,7)-1, +dateStr.slice(8,10), 23,59,59)
+    : Date.UTC(+dateStr.slice(0,4), +dateStr.slice(5,7)-1, +dateStr.slice(8,10), 0,0,0);
   let off = tz? tzOffsetMinutes(tz, new Date(naive)) : null;
-  if(off===null) off = -7*60;
+  if(off===null) off = -7*60; // no timezone on record: assume US Pacific
   return naive - off*60000;
 }
-function epLive(ep, tz){
+// When TVmaze has no air time we infer from the kind of service:
+// streaming drops at the start of its release date, broadcast airs in the evening.
+function airMoment(ep, tz, kind){ return localDayMs(ep.air, tz, kind==="net"); }
+function epLive(ep, tz, kind){
   if(ep.ts) return new Date(ep.ts)<=new Date();
   if(!ep.air) return false;
-  return Date.now() >= endOfLocalDayMs(ep.air, tz);
+  return Date.now() >= airMoment(ep, tz, kind);
 }
-function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep, sh&&sh.tz); }
+function aired(sh,ep){ return (sh&&sh.unlockAll)? true : epLive(ep, sh&&sh.tz, sh&&sh.airKind); }
 function isUp(sh){
-  return !(sh.seasons&&sh.seasons.some(se=>se.eps.some(ep=>epLive(ep, sh.tz))));
+  if(sh.unlockAll) return false; // user has declared the air dates wrong; treat the grid as live
+  return !(sh.seasons&&sh.seasons.some(se=>se.eps.some(ep=>epLive(ep, sh.tz, sh.airKind))));
 }
 function localDate(ts){ const d=new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function epDate(ep){ return ep.ts? localDate(ep.ts): (ep.air||null); }
@@ -470,11 +476,22 @@ function toggleEp(id,s,e){
   touch(sh); save(); render();
 }
 let undoState=null;
-function toastUndo(t){
+function markBulkDownloaded(id, scope){
+  const sh=db.find(x=>x.id===id); if(!sh) return;
+  sh.dl=sh.dl||{}; let n=0;
+  for(const se of sh.seasons){ if(scope!=="all"&&se.season!==+scope) continue;
+    for(const ep of se.eps){ const k=epK(se.season,ep.e); if(sh.watched[k]&&!sh.dl[k]){ sh.dl[k]=1; n++; } } }
+  touch(sh); save(); render();
+  toast(`${n} episode${n===1?"":"s"} marked downloaded.`);
+}
+function toastUndo(t, dlScope, dlId){
   const el=$("toast");
-  el.innerHTML=esc(t)+' <button class="btn hot" id="undoBtn" style="margin-left:10px">Undo</button>';
+  el.innerHTML=esc(t)+' <button class="btn hot" id="undoBtn" style="margin-left:10px">Undo</button>'
+    +(dlScope? ' <button class="btn" id="dlBulkBtn" style="margin-left:6px;color:var(--cyan);border-color:rgba(95,212,208,.5)">\uD83D\uDCE5 Downloaded</button>':'');
   el.classList.remove("hidden"); clearTimeout(el._t);
   el._t=setTimeout(()=>{ el.classList.add("hidden"); el.textContent=""; undoState=null; },8000);
+  if(dlScope){ document.getElementById("dlBulkBtn").onclick=()=>{
+    el.classList.add("hidden"); el.textContent=""; undoState=null; markBulkDownloaded(dlId, dlScope); }; }
   document.getElementById("undoBtn").onclick=()=>{
     if(undoState){ const sh=db.find(x=>x.id===undoState.id);
       if(sh){ sh.watched=undoState.watched; touch(sh); save(); render(); } }
@@ -495,18 +512,16 @@ function markSeason(id,s,on){
   undoState={id:sh.id, watched:{...sh.watched}};
   for(const ep of seas.eps){ const k=epK(s,ep.e);
     if(on&&aired(sh,ep)) sh.watched[k]=1; if(!on) delete sh.watched[k]; }
-  bulkDlPrompt = (on&&dlOn(sh))? {id:sh.id, season:s} : null;
   touch(sh); save(); render();
-  toastUndo(on? "Season "+s+" marked.":"Season "+s+" cleared.");
+  toastUndo(on? "Season "+s+" marked.":"Season "+s+" cleared.", (on&&dlOn(sh))? String(s):null, sh.id);
 }
 function catchUp(id){
   const sh=db.find(x=>x.id===id);
   undoState={id:sh.id, watched:{...sh.watched}};
   sh.watched={};
   for(const s of sh.seasons) for(const ep of s.eps) if(aired(sh,ep)) sh.watched[epK(s.season,ep.e)]=1;
-  bulkDlPrompt = dlOn(sh)? {id:sh.id, all:true} : null;
   touch(sh); save(); render();
-  toastUndo(`Caught up — moved to ${LABEL[catOf(sh)]}.`);
+  toastUndo(`Caught up — moved to ${LABEL[catOf(sh)]}.`, dlOn(sh)? "all":null, sh.id);
 }
 function markNext(id){ const sh=db.find(x=>x.id===id); const n=nextUnwatched(sh); if(n) toggleEp(id,n.s,n.e); }
 function removeShow(id){ db=db.filter(s=>s.id!==id); delMap[id]=Date.now(); confirmDel=null; if(openId===id) openId=null; save(); render(); }
@@ -791,7 +806,7 @@ function soonInfo(sh){
   }
   else if(sh.nextEp){ ts=sh.nextEp.ts; dateStr=sh.nextEp.date; tag="S"+pad(sh.nextEp.s)+"E"+pad(sh.nextEp.e); }
   if(!ts&&!dateStr) return null;
-  const ms = ts? new Date(ts).getTime() : endOfLocalDayMs(dateStr, sh.tz);
+  const ms = ts? new Date(ts).getTime() : localDayMs(dateStr, sh.tz, sh.airKind==="net");
   if(ms<now-3600e3) return null;
   const n=daysAway(dateStr||localDate(ts));
   let label = n<=0? (ts? fmtTime(ts):"Today") : n===1? "Tom" : (n<=99? n+"d": "");
@@ -800,7 +815,7 @@ function soonInfo(sh){
 function lastAiredMs(sh){
   let m=0;
   for(const se of sh.seasons) for(const ep of se.eps){
-    if(!epLive(ep, sh.tz)) continue;
+    if(!epLive(ep, sh.tz, sh.airKind)) continue;
     const t= ep.ts? new Date(ep.ts).getTime() : (ep.air? new Date(ep.air+"T00:00:00").getTime():0);
     if(t>m) m=t;
   }
@@ -966,7 +981,7 @@ function renderShows(){
     for(const sh of list){
       const a2=airedTotal(sh), w2=wCount(sh);
       const pct2=a2?Math.round(w2/a2*100):0, wait=Math.max(0,a2-w2);
-      const dot= isUp(sh)? "var(--violet)": (a2>0&&w2>=a2)? "var(--amber)": (sh.inProduction||sh.tmdbStatus==="Returning Series")? "var(--cyan)":"var(--faint)";
+      const dot= dropped(sh)? "var(--red)" : isUp(sh)? "var(--violet)": (a2>0&&w2>=a2)? "var(--amber)": (sh.inProduction||sh.tmdbStatus==="Returning Series")? "var(--cyan)":"var(--faint)";
       const cat2=catOf(sh);
       let sub="", subColor="var(--dim)";
       if(cat2==="watching"){ const n=nextUnwatched(sh);
@@ -1041,11 +1056,6 @@ function renderShows(){
       h+=`<a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
         <a class="btn" style="text-decoration:none" href="${imdbUrl}" target="_blank" rel="noopener">IMDb</a>
         <span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div>`;
-      if(bulkDlPrompt&&bulkDlPrompt.id===sh.id&&bulkDlPrompt.all){
-        h+=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 2px;font-size:12px;color:var(--cyan)">Binge archived?
-          <button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-bdlgo="${sh.id}:all">\uD83D\uDCE5 Mark all watched as downloaded</button>
-          <button class="btn" data-bdlx="1">\u2715</button></div>`;
-      }
       if(dlOn(sh)&&!isUp(sh)){
         const mm=markMode[sh.id]||"watch";
         h+=`<div style="display:flex;gap:8px;align-items:center;margin:8px 0 2px">
@@ -1079,11 +1089,6 @@ function renderShows(){
               <button data-sexp="${skey}" style="background:none;border:none;padding:0;cursor:pointer;font-family:inherit"><span class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.08em">SEASON ${seas.season} · ${onIn}/${airedIn} watched \u25B4</span></button>
               <button class="btn" data-season="${sh.id}:${seas.season}:${allOn?0:1}" ${airedIn?"":"disabled"}>${modeDl? (allOn?"Clear downloads":"Mark downloaded") : (allOn?"Clear season":"Mark aired")}</button>
             </div>`;
-          if(bulkDlPrompt&&bulkDlPrompt.id===sh.id&&bulkDlPrompt.season===seas.season){
-            h+=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 6px;font-size:12px;color:var(--cyan)">Downloaded this season?
-              <button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-bdlgo="${sh.id}:${seas.season}">\uD83D\uDCE5 Mark season downloaded</button>
-              <button class="btn" data-bdlx="1">\u2715</button></div>`;
-          }
           const nextIn=seas.eps.find(ep=>aired(sh,ep)&&!sh.watched[epK(seas.season,ep.e)]);
           if(nextIn&&nextIn.name) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin:0 0 6px">Next: E${pad(nextIn.e)} · ${esc(nextIn.name)}</div>`;
           h+=`<div style="display:flex;flex-wrap:wrap;gap:6px">`;
@@ -1116,13 +1121,6 @@ function bindView(){
   document.querySelectorAll("[data-viewtoggle]").forEach(b=>b.onclick=()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); });
   document.querySelectorAll("[data-schedtoggle]").forEach(b=>b.onclick=()=>{ schedOpen=!schedOpen; render(); });
   document.querySelectorAll("[data-dlexp]").forEach(b=>b.onclick=()=>{ dlOpen=!dlOpen; render(); });
-  document.querySelectorAll("[data-bdlgo]").forEach(b=>b.onclick=()=>{ const [id,scope]=b.dataset.bdlgo.split(":");
-    const sh=db.find(x=>x.id===+id); sh.dl=sh.dl||{}; let n=0;
-    for(const se of sh.seasons){ if(scope!=="all"&&se.season!==+scope) continue;
-      for(const ep of se.eps){ const k=epK(se.season,ep.e); if(sh.watched[k]&&!sh.dl[k]){ sh.dl[k]=1; n++; } } }
-    bulkDlPrompt=null; touch(sh); save(); render();
-    toast(`${n} episode${n===1?"":"s"} marked downloaded.`); });
-  document.querySelectorAll("[data-bdlx]").forEach(b=>b.onclick=()=>{ bulkDlPrompt=null; render(); });
   document.querySelectorAll("[data-dlnext]").forEach(b=>b.onclick=()=>{ const [id,ss,ee]=b.dataset.dlnext.split(":").map(Number);
     const sh=db.find(x=>x.id===id); sh.dl=sh.dl||{}; sh.dl[epK(ss,ee)]=1; dlPrompt=null;
     touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded \u2713`); });
@@ -1189,7 +1187,7 @@ const WD="https://www.wikidata.org/w/api.php";
 let movTab = "watchlist"; // watchlist | watched
 let movFilter = "";
 let movBusy=false, movResults=[], movConfirmDel=null, movQuery="";
-let movSearched=false, movOpenId=null;
+let movSearched=false, movOpenId=null, mvPrompt=null;
 
 async function wdSearch(q){
   const u=WD+"?action=wbsearchentities&language=en&format=json&origin=*&limit=7&search="+encodeURIComponent(q);
@@ -1279,6 +1277,7 @@ function renderMovies(){
     <select id="movSortSel" style="width:auto;padding:5px 8px;font-size:12px;flex-shrink:0">
       ${mSortOpts.map(([v,l])=>`<option value="${v}"${movSort===v?" selected":""}>${l}</option>`).join("")}
     </select></div>`;
+  if(mvPrompt && !list.some(m=>m.id===mvPrompt)){ const pm=movieById(mvPrompt); if(pm) list=[pm,...list]; } // keep the just-watched film in view until its download question is answered
   if(!list.length) h+=`<div class="empty">${movTab==="watchlist"?"Nothing on the watchlist. Search above, or import your TV Time movies from \u2699.":movTab==="todl"?"Nothing pending — new watches land here until you mark them downloaded.":"No watched movies match."}</div>`;
   const shown=list.slice(0,120);
   for(const m of shown){
@@ -1350,17 +1349,17 @@ function bindMovies(){
     }catch(e){ b.disabled=false; toast("Refresh failed \u2014 check connection."); }
   });
   document.querySelectorAll("[data-mvclear]").forEach(b=>b.onclick=()=>{ movResults=[]; render(); });
-  document.querySelectorAll("[data-movtab]").forEach(b=>b.onclick=()=>{ movTab=b.dataset.movtab; movConfirmDel=null; render(); });
+  document.querySelectorAll("[data-movtab]").forEach(b=>b.onclick=()=>{ movTab=b.dataset.movtab; movConfirmDel=null; mvPrompt=null; render(); });
   document.querySelectorAll("[data-mvw]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvw);
     m.watched=!m.watched;
-    if(m.watched){ m.watchedAt=new Date().toISOString(); if(!m.dl) m.dlWant=true; }
-    else { m.watchedAt=null; m.dlWant=false; }
+    if(m.watched){ m.watchedAt=new Date().toISOString(); if(!m.dl){ m.dlWant=true; mvPrompt=m.id; } }
+    else { m.watchedAt=null; m.dlWant=false; mvPrompt=null; }
     m.updatedAt=Date.now(); save(); render();
     toast(m.watched? `${m.title} watched \u2713${!m.dl?" — downloaded it?":""}` : `${m.title} moved to watchlist.`); });
   document.querySelectorAll("[data-mvdlgo]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvdlgo);
-    m.dl=true; m.dlWant=false; m.updatedAt=Date.now(); save(); render(); toast(`${m.title} downloaded \u2713`); });
+    m.dl=true; m.dlWant=false; mvPrompt=null; m.updatedAt=Date.now(); save(); render(); toast(`${m.title} downloaded \u2713`); });
   document.querySelectorAll("[data-mvskip]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvskip);
-    m.dlWant=false; m.updatedAt=Date.now(); save(); render(); toast(`Okay — no download reminder for ${m.title}.`); });
+    m.dlWant=false; mvPrompt=null; m.updatedAt=Date.now(); save(); render(); toast(`Okay — no download reminder for ${m.title}.`); });
   document.querySelectorAll("[data-mvdel]").forEach(b=>b.onclick=()=>{ movConfirmDel=b.dataset.mvdel; render(); });
   document.querySelectorAll("[data-mvdelyes]").forEach(b=>b.onclick=()=>{ const id=b.dataset.mvdelyes;
     movies=movies.filter(m=>m.id!==id); delMap[id]=Date.now(); movConfirmDel=null; save(); render(); });
@@ -1594,7 +1593,7 @@ async function ttRun(sel){
       } else merged++;
       let hit=0;
       for(const seas of target.seasons) for(const ep of seas.eps){
-        if(it.eps[seas.season+"-"+ep.e] && epLive(ep, target.tz)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
+        if(it.eps[seas.season+"-"+ep.e] && epLive(ep, target.tz, target.airKind)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
       }
       if(hit===0 && !db.find(x=>x.id===found.id && x!==target)){
         skipped.push({n:it.name, r:"added, but episode numbering did not match ("+Object.keys(it.eps).length+" records)"});
