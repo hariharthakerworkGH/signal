@@ -16,14 +16,16 @@
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body { margin:0; background:var(--bg); color:var(--text);
-         font-family:'Archivo',system-ui,-apple-system,sans-serif; }
+         /* No webfont ships with the app, so name the stack we actually get.
+            The old 'Archivo' here was never loaded and fell back silently. */
+         font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
   .root { max-width:640px; margin:0 auto; padding:20px 16px calc(64px + env(safe-area-inset-bottom)); }
   .mono { font-family:ui-monospace,'SF Mono',Menlo,monospace; }
-  h1 { font-weight:900; font-size:34px; margin:4px 0 0; letter-spacing:-.02em; line-height:1; }
+  h1 { font-weight:900; font-size:19px; margin:2px 0 0; letter-spacing:.04em; line-height:1; }
   .eyebrow { font-size:11px; color:var(--cyan); letter-spacing:.18em; }
   .btn { font-family:inherit; font-weight:600; font-size:12px; letter-spacing:.04em;
          border:1px solid var(--line); background:transparent; color:var(--dim);
-         border-radius:6px; padding:6px 11px; cursor:pointer; }
+         border-radius:6px; padding:7px 11px; cursor:pointer; }
   .btn:active { color:var(--text); border-color:var(--faint); }
   .btn:disabled { opacity:.5; }
   .btn.hot { background:var(--amber); border-color:var(--amber); color:#1A1408; }
@@ -35,13 +37,24 @@
   input, select { font-family:inherit; background:var(--card); border:1px solid var(--line);
           border-radius:8px; color:var(--text); padding:11px 13px; font-size:15px; width:100%; }
   input:focus { outline:none; border-color:var(--amber); }
-  .cell { width:26px; height:26px; border-radius:4px; border:1px solid var(--line);
-          background:#191B28; cursor:pointer; padding:0; transition:background .15s, box-shadow .15s; }
-  .cell.on { background:var(--amber); border-color:var(--amber); box-shadow:0 0 8px rgba(255,180,84,.45); }
-  .cell.dl { box-shadow: inset 0 -6px 0 0 rgba(95,212,208,.85); }
-  .cell.on.dl { box-shadow: 0 0 8px rgba(255,180,84,.45), inset 0 -6px 0 0 rgba(95,212,208,.95); }
+  /* Every control gets a visible keyboard ring, not just the episode cells. */
+  :focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+  /* 32px, not 26px: this is the control you touch most on a phone. It stays
+     under the 44px guideline on purpose - a season of 44px cells would fit
+     seven to a row and stop reading as a grid. The episode number inside is
+     what actually makes it tappable with confidence. */
+  .cell { width:32px; height:32px; border-radius:5px; border:1px solid var(--line);
+          background:#191B28; cursor:pointer; padding:0;
+          display:flex; align-items:center; justify-content:center;
+          font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:11px;
+          line-height:1; color:var(--faint);
+          transition:background .15s, box-shadow .15s; }
+  .cell.on { background:var(--amber); border-color:var(--amber); color:#1A1408; font-weight:700;
+             box-shadow:0 0 8px rgba(255,180,84,.45); }
+  .cell.dl { box-shadow: inset 0 -5px 0 0 rgba(95,212,208,.85); }
+  .cell.on.dl { box-shadow: 0 0 8px rgba(255,180,84,.45), inset 0 -5px 0 0 rgba(95,212,208,.95); }
   .cell.locked { background:transparent; border:1px dashed var(--faint); opacity:.45; }
-  @media (prefers-reduced-motion:reduce){ .cell{transition:none;} }
+  @media (prefers-reduced-motion:reduce){ .cell{transition:none;} .bar > div{transition:none;} }
   .cell:focus-visible { outline:2px solid var(--cyan); outline-offset:1px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:12px; }
   .cardhead { display:block; width:100%; text-align:left; background:none; border:none;
@@ -58,8 +71,11 @@
             cursor:pointer; width:100%; text-align:left; color:var(--text); font-family:inherit; }
   .result img { width:42px; height:63px; border-radius:6px; object-fit:cover; background:#101120; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(102px,1fr)); gap:12px 10px; }
-  .tile { background:none; border:none; padding:0; cursor:pointer; text-align:left; font-family:inherit; color:var(--text); }
-  .tile .pwrap { position:relative; border-radius:10px; overflow:hidden; background:#101120; aspect-ratio:2/3; border:1px solid var(--line); }
+  .tile { display:block; background:none; border:none; padding:0; cursor:pointer; text-align:left; font-family:inherit; color:var(--text); }
+  /* display:block matters: .pwrap is a <span>, and aspect-ratio is ignored on
+     an inline box - so every tile used to take the poster's own height and the
+     grid came out ragged. */
+  .tile .pwrap { display:block; position:relative; border-radius:10px; overflow:hidden; background:#101120; aspect-ratio:2/3; border:1px solid var(--line); }
   .tile img { width:100%; height:100%; object-fit:cover; display:block; position:relative; z-index:1; }
   .tile .fallback { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:26px; color:var(--faint); }
   .tile .dot { z-index:2; position:absolute; top:6px; left:6px; width:9px; height:9px; border-radius:50%; box-shadow:0 0 0 2px rgba(0,0,0,.5); }
@@ -76,17 +92,43 @@
            border-radius:8px; padding:10px 16px; font-size:13px; z-index:99; max-width:90vw; }
   .hidden { display:none !important; }
   .poster { width:46px; height:69px; border-radius:6px; object-fit:cover; background:#101120; flex-shrink:0; }
+
+  /* The three main tabs follow you down the page. Switching used to mean
+     scrolling back past the whole header. */
+  .navbar { position:sticky; top:0; z-index:40; margin:6px 0 18px;
+            background:var(--bg); border-bottom:1px solid var(--line);
+            padding-top:8px; }
+  /* UP NEXT is the question the app exists to answer, so the first one gets
+     the poster and the big button; the rest stay one line each. */
+  .hero { display:flex; gap:14px; align-items:center; background:var(--cardup);
+          border:1px solid var(--amberdim); border-radius:12px; padding:12px; margin-bottom:10px; }
+  .hero .poster { width:56px; height:84px; }
+  .hero .htitle { font-weight:800; font-size:17px; line-height:1.2; margin-bottom:3px;
+                  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .hero .hep { font-size:12px; color:var(--cyan); margin-bottom:9px; }
+  .row { display:flex; align-items:center; gap:12px; background:var(--cardup);
+         border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .lineitem { display:flex; justify-content:space-between; align-items:baseline;
+              border-bottom:1px solid var(--line); padding:8px 2px; }
+  .ttl { font-weight:700; font-size:14px; }
+  .clip { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fallposter { border-radius:6px; background:#101120; border:1px solid var(--line);
+                display:flex; align-items:center; justify-content:center;
+                font-weight:900; color:var(--faint); flex-shrink:0; }
 </style>
 </head>
 <body>
 <div class="root">
 
-  <header style="margin-bottom:16px">
-    <div class="eyebrow mono">&#9679; REC — PERSONAL WATCHLOG</div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <h1>SIGNAL <span class="mono" style="font-size:11px;color:var(--faint);font-weight:500;vertical-align:middle">v43</span></h1>
-      <div>
-        <button class="btn" id="syncAllBtn">&#10227; Sync all</button>
+  <header style="margin-bottom:14px">
+    <!-- The eyebrow gets its own line: beside the buttons it wrapped to two
+         lines on a phone and shoved the wordmark down. -->
+    <div class="eyebrow mono clip">&#9679; REC — PERSONAL WATCHLOG</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:3px">
+      <h1 class="clip">SIGNAL <span class="mono" id="verTag" style="font-size:11px;color:var(--faint);font-weight:500;letter-spacing:0"></span></h1>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn hot" id="addToggleBtn" aria-expanded="false">&#65291; Add</button>
+        <button class="btn" id="syncAllBtn" aria-label="Sync all shows">&#10227;</button>
         <button class="btn" id="settingsBtn" aria-label="Settings">&#9881;</button>
       </div>
     </div>
@@ -126,19 +168,21 @@
     </div>
   </div>
 
-  <!-- ADD -->
-  <div style="display:flex;gap:8px;margin-bottom:8px">
-    <input id="q" placeholder="Add any show — even unreleased ones" style="flex:1" enterkeyhint="search">
-    <button class="btn hot" id="addBtn" style="padding:0 16px;font-size:13px;flex-shrink:0">Search</button>
+  <!-- ADD — folded away until you want it, so the library starts higher up -->
+  <div id="addPanel" class="hidden">
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="q" placeholder="Add any show — even unreleased ones" style="flex:1" enterkeyhint="search">
+      <button class="btn hot" id="addBtn" style="padding:0 16px;font-size:13px;flex-shrink:0">Search</button>
+    </div>
+    <div id="msg" style="font-size:13px;color:var(--red);margin-bottom:8px"></div>
+    <div id="results"></div>
   </div>
-  <div id="msg" style="font-size:13px;color:var(--red);margin-bottom:8px"></div>
-  <div id="results"></div>
 
   <div class="stats mono" id="stats"></div>
   <div id="statsCard"></div>
   <div id="backupNag"></div>
 
-  <nav style="margin:6px 0 18px">
+  <nav class="navbar">
     <button class="tab act" id="tabShows">SHOWS</button>
     <button class="tab" id="tabMov">MOVIES</button>
     <button class="tab" id="tabDisc">DISCOVER</button>
@@ -151,44 +195,153 @@
 <div class="toast hidden" id="toast"></div>
 
 <script>
-/* ================= state & storage ================= */
+/* ================= state & storage =================
+   The version the app is running. It must match CACHE_NAME in sw.js, which is
+   how the service worker knows a new build has landed. Bump both together. */
+const APP_VERSION = 44;
+
 const $ = (id) => document.getElementById(id);
 const todayISO = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 const pad = (n) => String(n).padStart(2,"0");
 let storageFull=false;
+
+/* Settings and small caches stay in localStorage: they are tiny, and reading
+   them synchronously keeps the first paint simple. */
 function store(k,v){
   try{ if(v===undefined) return localStorage.getItem(k);
     localStorage.setItem(k,v); storageFull=false; }
   catch(e){
     if(v!==undefined){ storageFull=true;
-      try{ toast("Storage is full. That change was NOT saved. Export a backup, then remove some finished shows.",9000); }catch(_){}
+      try{ toast("Storage is full. That change was NOT saved. Export a backup.",9000); }catch(_){}
     }
     return null;
   }
 }
-function storageBytes(){
-  let n=0;
-  try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
-    if(k&&k.indexOf("signal.")===0) n+=k.length+((localStorage.getItem(k)||"").length); } }catch(e){}
-  return n;
+function readLS(k, fallback){ try{ return JSON.parse(store(k)||"null") ?? fallback; }catch(e){ return fallback; } }
+
+/* ---- the library itself lives in IndexedDB ----
+   localStorage caps out around 5 MB, and it meant every episode tap
+   re-serialised the WHOLE library. IndexedDB has no practical cap and writes
+   one show per tap. The old localStorage copy is deliberately left in place,
+   untouched, so v43 still has something to fall back to; Settings has a button
+   to clear it once you are happy. */
+const IDB_NAME="signal", IDB_VER=1;
+let idbHandle=null, idbBroken=false;
+function idbOpen(){
+  if(idbHandle) return Promise.resolve(idbHandle);
+  return new Promise((res,rej)=>{
+    let rq; try{ rq=indexedDB.open(IDB_NAME,IDB_VER); }catch(e){ return rej(e); }
+    rq.onupgradeneeded=()=>{ const d=rq.result;
+      if(!d.objectStoreNames.contains("shows"))  d.createObjectStore("shows",{keyPath:"id"});
+      if(!d.objectStoreNames.contains("movies")) d.createObjectStore("movies",{keyPath:"id"});
+      if(!d.objectStoreNames.contains("meta"))   d.createObjectStore("meta",{keyPath:"k"}); };
+    rq.onsuccess=()=>{ idbHandle=rq.result; res(idbHandle); };
+    rq.onerror=()=>rej(rq.error);
+    rq.onblocked=()=>rej(new Error("blocked"));
+  });
 }
-function updateStorageMeter(){
-  const el=$("storageMeter"); if(!el) return;
-  const n=storageBytes(), mb=(n/1048576).toFixed(2);
-  const pct=Math.min(100,Math.round(n/5e6*100));
-  const col= n>4.5e6? "var(--red)" : n>3.5e6? "var(--amber)" : "var(--faint)";
-  el.innerHTML=`<div class="mono" style="font-size:11px;color:${col}">Local storage: ${mb} MB (about ${pct}% of the usual 5 MB browser limit)${n>3.5e6?" \u00b7 export a backup and consider removing finished shows":""}</div>`;
+function idbGetAll(name){
+  return idbOpen().then(d=>new Promise((res,rej)=>{
+    const rq=d.transaction(name,"readonly").objectStore(name).getAll();
+    rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>rej(rq.error); }));
 }
-let db = []; try { db = JSON.parse(store("signal.db")||"[]"); } catch(e){ db=[]; }
-let movies = []; try { movies = JSON.parse(store("signal.movies")||"[]"); } catch(e){ movies=[]; }
-let delMap = {}; try { delMap = JSON.parse(store("signal.del")||"{}"); } catch(e){ delMap={}; }
+function idbWrite(name, puts, dels, clearFirst){
+  return idbOpen().then(d=>new Promise((res,rej)=>{
+    const tx=d.transaction(name,"readwrite"), st=tx.objectStore(name);
+    if(clearFirst) st.clear();
+    for(const r of puts||[]) st.put(r);
+    for(const k of dels||[]) st.delete(k);
+    tx.oncomplete=()=>res(true); tx.onerror=tx.onabort=()=>rej(tx.error); }));
+}
+
+let db = [], movies = [], delMap = {};
 let ghToken = store("signal.token")||"";
 let gistId = store("signal.gistid")||"";
 let pushTimer=null, cloudBusy=false, lastCloud=+store("signal.lastcloud")||0;
 
-function saveLocal(){ store("signal.db", JSON.stringify(db)); store("signal.del", JSON.stringify(delMap)); store("signal.movies", JSON.stringify(movies)); }
-function save(){ saveLocal(); schedulePush(); }
-function touch(sh){ sh.updatedAt=Date.now(); }
+/* What has changed since the last write. Only these get sent to disk. */
+const dirtyShows=new Set(), deadShows=new Set();
+const dirtyMovies=new Set(), deadMovies=new Set();
+let metaDirty=false;
+
+function touch(sh){ sh.updatedAt=Date.now(); dirtyShows.add(sh.id); }
+function touchMovie(m){ m.updatedAt=Date.now(); dirtyMovies.add(m.id); }
+
+/* The last-resort path: a private window, or storage the browser has blocked.
+   Behaves exactly like v43 did, 5 MB ceiling and all. */
+function saveToLS(){
+  store("signal.db", JSON.stringify(db));
+  store("signal.del", JSON.stringify(delMap));
+  store("signal.movies", JSON.stringify(movies));
+}
+function persist(full){
+  if(idbBroken){ saveToLS(); return Promise.resolve(); }
+  const shPuts = full? db : db.filter(s=>dirtyShows.has(s.id));
+  const mvPuts = full? movies : movies.filter(m=>dirtyMovies.has(m.id));
+  const shDels = [...deadShows], mvDels = [...deadMovies];
+  dirtyShows.clear(); deadShows.clear(); dirtyMovies.clear(); deadMovies.clear();
+  const writes=[];
+  if(full || shPuts.length || shDels.length) writes.push(idbWrite("shows",shPuts,shDels,full));
+  if(full || mvPuts.length || mvDels.length) writes.push(idbWrite("movies",mvPuts,mvDels,full));
+  if(full || metaDirty){ metaDirty=false; writes.push(idbWrite("meta",[{k:"del",v:delMap}])); }
+  return Promise.all(writes).then(()=>{ storageFull=false; }).catch(e=>{
+    // Quota exceeded, or the store went away mid-write. Say so rather than
+    // letting the tap look like it worked.
+    storageFull=true;
+    try{ toast("Could not save that change \u2014 export a backup now.",9000); }catch(_){}
+    try{ render(); }catch(_){}
+  });
+}
+function saveLocal(){ return persist(false); }
+function saveAll(){ return persist(true); }
+function save(){ const p=persist(false); schedulePush(); return p; }
+
+async function loadAll(){
+  try{
+    const [shows,mvs,meta]=await Promise.all([idbGetAll("shows"),idbGetAll("movies"),idbGetAll("meta")]);
+    const m={}; for(const r of meta) m[r.k]=r.v;
+    if(shows.length||mvs.length||m.migrated){
+      db=shows; movies=mvs; delMap=m.del||{};
+    } else {
+      // First run on this version: carry the localStorage library across.
+      db=readLS("signal.db",[])||[]; movies=readLS("signal.movies",[])||[]; delMap=readLS("signal.del",{})||{};
+      await persist(true);
+      await idbWrite("meta",[{k:"migrated",v:Date.now()}]);
+    }
+  }catch(e){
+    idbBroken=true;
+    db=readLS("signal.db",[])||[]; movies=readLS("signal.movies",[])||[]; delMap=readLS("signal.del",{})||{};
+  }
+  // Newest first. addedAt is set on every add from v44 on; older records fall
+  // back to updatedAt, which is the best guess their data allows.
+  db.sort((a,b)=>(b.addedAt||b.updatedAt||0)-(a.addedAt||a.updatedAt||0));
+}
+
+async function updateStorageMeter(){
+  const el=$("storageMeter"); if(!el) return;
+  if(idbBroken){
+    let n=0;
+    try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
+      if(k&&k.indexOf("signal.")===0) n+=k.length+((localStorage.getItem(k)||"").length); } }catch(e){}
+    const mb=(n/1048576).toFixed(2), pct=Math.min(100,Math.round(n/5e6*100));
+    el.innerHTML=`<div class="mono" style="font-size:11px;color:${n>3.5e6?"var(--red)":"var(--faint)"}">Fallback storage: ${mb} MB of about 5 MB. IndexedDB is unavailable here \u2014 a private window, or site data is blocked.</div>`;
+    return;
+  }
+  let used=null, quota=null;
+  try{ const est=await navigator.storage.estimate(); used=est.usage; quota=est.quota; }catch(e){}
+  const oldLS=(()=>{ try{ return (store("signal.db")||"").length; }catch(e){ return 0; } })();
+  el.innerHTML=`<div class="mono" style="font-size:11px;color:var(--faint)">`
+    +(used!=null? `Using ${(used/1048576).toFixed(1)} MB${quota? " of "+Math.round(quota/1048576)+" MB available":""}. `
+                : `Stored in IndexedDB. `)
+    +`${db.length} show${db.length===1?"":"s"}, ${movies.length} film${movies.length===1?"":"s"}.</div>`
+    +(oldLS>1000? `<div style="margin-top:8px"><button class="btn" id="dropLegacyBtn">Clear the old v43 copy (${(oldLS/1048576).toFixed(1)} MB)</button>
+       <div style="font-size:11px;color:var(--faint);margin-top:5px">Kept so you can roll back to v43. Clearing frees the space and does not touch your live data.</div></div>`:"");
+  const dl=$("dropLegacyBtn");
+  if(dl) dl.onclick=()=>{
+    try{ localStorage.removeItem("signal.db"); localStorage.removeItem("signal.movies"); localStorage.removeItem("signal.del"); }catch(e){}
+    updateStorageMeter(); toast("Old copy cleared.");
+  };
+}
 
 /* ================= cloud sync via private GitHub Gist ================= */
 const GIST_FILE="signal-db.json";
@@ -201,31 +354,79 @@ async function gh(path, opts={}){
 }
 async function findGist(){
   if(gistId) return gistId;
-  const gists=await gh("/gists?per_page=100");
-  const hit=(gists||[]).find(g=>g.files&&g.files[GIST_FILE]);
-  if(hit){ gistId=hit.id; store("signal.gistid",gistId); return gistId; }
+  // Page through them. v43 looked at the first 100 only, so past that it found
+  // nothing, created a SECOND database gist, and the two devices quietly
+  // stopped agreeing with each other.
+  for(let page=1; page<=10; page++){
+    const gists=await gh(`/gists?per_page=100&page=${page}`);
+    if(!gists||!gists.length) break;
+    const hit=gists.find(g=>g.files&&g.files[GIST_FILE]);
+    if(hit){ gistId=hit.id; store("signal.gistid",gistId); return gistId; }
+    if(gists.length<100) break;
+  }
   return null;
 }
+/* Marks are independent facts, so they merge one key at a time.
+   v43 kept whichever whole show object had the newer updatedAt, which threw
+   away a mark every time two devices touched different episodes before
+   syncing. sh.wts[key] records WHEN watched[key] last changed, so an unmark
+   travels across too. Where neither side has a timestamp - data written before
+   v44 - the mark wins: never lose a watch mark. */
+function mergeMarks(aOn, aTs, bOn, bTs){
+  aOn=aOn||{}; bOn=bOn||{}; aTs=aTs||{}; bTs=bTs||{};
+  const keys=new Set([...Object.keys(aOn),...Object.keys(bOn),...Object.keys(aTs),...Object.keys(bTs)]);
+  const marks={}, ts={};
+  for(const k of keys){
+    const inA=Object.prototype.hasOwnProperty.call(aOn,k), inB=Object.prototype.hasOwnProperty.call(bOn,k);
+    const tA=aTs[k], tB=bTs[k];
+    if(tA!=null&&tB!=null) ts[k]=Math.max(tA,tB);
+    else if(tA!=null) ts[k]=tA;
+    else if(tB!=null) ts[k]=tB;
+    let on;
+    if(inA===inB) on=inA;                              // both agree
+    else if(tA!=null&&tB!=null) on=(tA>=tB)? inA : inB; // whoever acted last
+    else if(tA!=null) on=inA;                          // only this side is informed
+    else if(tB!=null) on=inB;
+    else on=true;                                      // no timestamps: keep the mark
+    // The stored value carries meaning: 1 is a bulk or imported mark, a
+    // timestamp is a single deliberate one, which is what drives the download
+    // prompt. Keep the more specific of the two.
+    if(on) marks[k]=Math.max(Number(inA?aOn[k]:0)||0, Number(inB?bOn[k]:0)||0)||1;
+  }
+  return {marks, ts};
+}
+function mergeShow(a, b){            // a = this device, b = the gist
+  const out={...((a.updatedAt||0) >= (b.updatedAt||0) ? a : b)};
+  const w=mergeMarks(a.watched,a.wts,b.watched,b.wts); out.watched=w.marks; out.wts=w.ts;
+  const d=mergeMarks(a.dl,a.dts,b.dl,b.dts);          out.dl=d.marks;      out.dts=d.ts;
+  out.updatedAt=Math.max(a.updatedAt||0,b.updatedAt||0);
+  return out;
+}
 function mergeMovies(remote){
+  // A film is a single decision - watched or not - so the newer copy winning
+  // outright is honest here in a way it never was for an episode grid.
   const map={};
-  for(const m of remote) map[m.id]=m;
+  for(const m of remote||[]) map[m.id]=m;
   for(const m of movies) if(!map[m.id]||(m.updatedAt||0)>=(map[m.id].updatedAt||0)) map[m.id]=m;
-  const before=JSON.stringify(movies.map(m=>[m.id,m.updatedAt]));
+  const sig=(a)=>JSON.stringify(a.map(m=>[m.id,m.updatedAt,!!m.watched,!!m.dl]).sort());
+  const before=sig(movies);
   movies=Object.values(map).filter(m=>!(delMap[m.id]&&delMap[m.id]>(m.updatedAt||0)));
-  return before!==JSON.stringify(movies.map(m=>[m.id,m.updatedAt]));
+  return before!==sig(movies);
 }
 function mergeCloud(remoteShows, remoteDel){
   for(const [id,ts] of Object.entries(remoteDel||{}))
-    if(!delMap[id]||ts>delMap[id]) delMap[id]=ts;
-  const map={};
-  for(const s of (remoteShows||[])) map[s.id]=s;
-  for(const s of db) if(!map[s.id]||(s.updatedAt||0)>=(map[s.id].updatedAt||0)) map[s.id]=s;
-  const before=JSON.stringify(db.map(s=>[s.id,s.updatedAt,Object.keys(s.watched||{}).length]));
-  db=Object.values(map)
+    if(!delMap[id]||ts>delMap[id]){ delMap[id]=ts; metaDirty=true; }
+  const local={}; for(const s of db) local[s.id]=s;
+  const out={};
+  for(const s of (remoteShows||[])) out[s.id]= local[s.id]? mergeShow(local[s.id],s) : s;
+  for(const s of db) if(!out[s.id]) out[s.id]=s;
+  const sig=(arr)=>JSON.stringify(arr.map(s=>[s.id,s.updatedAt,
+    Object.keys(s.watched||{}).sort().join(","), Object.keys(s.dl||{}).sort().join(",")]));
+  const before=sig(db);
+  db=Object.values(out)
     .filter(s=>!(delMap[s.id]&&delMap[s.id]>(s.updatedAt||0)))
-    .sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
-  const after=JSON.stringify(db.map(s=>[s.id,s.updatedAt,Object.keys(s.watched||{}).length]));
-  return before!==after;
+    .sort((a,b)=>(b.addedAt||b.updatedAt||0)-(a.addedAt||a.updatedAt||0));
+  return before!==sig(db);
 }
 async function pullCloud(quiet){
   if(!ghToken||cloudBusy) return;
@@ -241,7 +442,7 @@ async function pullCloud(quiet){
         const remote=JSON.parse(content);
         const changed=mergeCloud(remote.shows, remote.deleted);
         const mChanged=mergeMovies(remote.movies||[]);
-        saveLocal();
+        await saveAll();   // a merge can rewrite every record, so write the lot
         if(changed||mChanged){ render(); if(!quiet) toast("Synced from cloud."); }
       }
     }
@@ -290,6 +491,11 @@ function plain(x){ return String(x||"").replace(/<[^>]+>/g," ")
   .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim(); }
 function byTitle(a,b){ return String(a.title||"").localeCompare(String(b.title||""), undefined, {numeric:true, sensitivity:"base"}); }
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+/* Poster URLs come from TVmaze and Wikipedia - but also from any backup file
+   you import. Dropped into src="..." unescaped, a crafted one could close the
+   attribute and run script, and the sync token is sitting in localStorage.
+   Anything that is not a plain https URL is simply not shown. */
+function imgSrc(u){ const s=String(u||""); return /^https:\/\/[^"'<>\s]+$/i.test(s)? esc(s) : ""; }
 
 /* ================= TVmaze (no API key needed) ================= */
 const MAZE = "https://api.tvmaze.com";
@@ -405,7 +611,7 @@ async function doSearch(){
     if(!hits.length){ $("msg").textContent=`No results for "${q}".`; }
     $("results").innerHTML=hits.map(h=>`
       <button class="result" data-id="${h.id}">
-        <img src="${(h.image&&h.image.medium)||''}" alt="" onerror="this.style.visibility='hidden'">
+        <img src="${imgSrc(h.image&&h.image.medium)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
         <span><b>${esc(h.name)}</b> <span style="color:var(--faint);font-size:12px">${h.premiered? h.premiered.slice(0,4):"TBA"}</span><br>
         <span style="font-size:11px;color:var(--dim)">${esc(plain(h.summary).slice(0,80))}…</span></span>
       </button>`).join("");
@@ -421,6 +627,7 @@ async function addShow(showId){
   try{
     const show=await fetchFullShow(showId);
     touch(show);
+    show.addedAt=Date.now();
     db.unshift(show); save(); openId=show.id; libTab=catOf(show); render();
     toast(`Added ${show.title} — ${totalEps(show)} episodes on record.`);
   }catch(e){ toast(e.message==="DAILY"? "That looks like a daily serial (150+ eps/season) — not supported.":"Add failed — network error."); }
@@ -442,33 +649,54 @@ async function syncShow(id, silent){
 async function syncAll(){
   if(syncing) return;
   if(!navigator.onLine){ toast("Offline — sync needs internet."); return; }
-  const targets=db.filter(s=>!dropped(s)&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series"));
+  const targets=db.filter(s=>!dropped(s)&&!s.manual&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series"));
   if(!targets.length){ toast("Nothing active to sync."); return; }
   syncing=true;
+  let ok=0; const failed=[];
   for(let i=0;i<targets.length;i++){
     $("statusLine").textContent=`Syncing ${i+1}/${targets.length} — ${targets[i].title}`;
     try{ const fresh=await fetchFullShow(targets[i].id, targets[i].watched);
-         Object.assign(targets[i], fresh); touch(targets[i]); save(); }catch(e){}
+         Object.assign(targets[i], fresh); touch(targets[i]); save(); ok++; }
+    catch(e){ failed.push(targets[i].title); }
+    // TVmaze rate-limits. v43 fired these back to back, so a big library was
+    // the case most likely to fail - and it still said "Sync complete."
+    if(i<targets.length-1) await new Promise(r=>setTimeout(r,600));
   }
-  syncing=false; $("statusLine").textContent=""; render(); toast("Sync complete.");
+  syncing=false; $("statusLine").textContent=""; render();
+  if(failed.length) toast(`Synced ${ok}. ${failed.length} failed: ${failed.slice(0,3).join(", ")}${failed.length>3?"…":""}`,7000);
+  else toast(`Synced ${ok} show${ok===1?"":"s"}.`);
+}
+
+/* Every change to a mark stamps sh.wts / sh.dts, which is how a sync works out
+   which device acted last. Setting sh.watched[k] by hand skips the stamp, so
+   all of it goes through these two. */
+function setWatched(sh,k,on,val){
+  sh.watched=sh.watched||{}; sh.wts=sh.wts||{};
+  if(on) sh.watched[k]=val||1; else delete sh.watched[k];
+  sh.wts[k]=Date.now();
+}
+function setDl(sh,k,on){
+  sh.dl=sh.dl||{}; sh.dts=sh.dts||{};
+  if(on) sh.dl[k]=1; else delete sh.dl[k];
+  sh.dts[k]=Date.now();
 }
 
 function toggleEp(id,s,e){
-  const sh=db.find(x=>x.id===id);
-  const seas=sh.seasons.find(x=>x.season===s); const ep=seas.eps.find(x=>x.e===e);
+  const sh=db.find(x=>x.id===id); if(!sh) return;
+  const seas=sh.seasons.find(x=>x.season===s); if(!seas) return;
+  const ep=seas.eps.find(x=>x.e===e); if(!ep) return;   // a sync can retire an episode a stale button still points at
   if(!aired(sh,ep)) return;
   const k=epK(s,e);
   const epLabel=`S${pad(s)}E${pad(e)}${ep.name? " · "+ep.name:""}`;
   if(dlOn(sh) && markMode[sh.id]==="dl"){
-    sh.dl=sh.dl||{};
-    const on=!sh.dl[k];
-    if(on) sh.dl[k]=1; else delete sh.dl[k];
+    const on=!(sh.dl&&sh.dl[k]);
+    setDl(sh,k,on);
     toast(`${epLabel} ${on?"downloaded \u2713":"removed from downloads"}`);
     touch(sh); save(); render(); return;
   }
   const before=catOf(sh);
-  const marking=!sh.watched[k];
-  if(sh.watched[k]) delete sh.watched[k]; else sh.watched[k]=Date.now();
+  const marking=!(sh.watched&&sh.watched[k]);
+  setWatched(sh,k,marking,Date.now());   // a timestamp, not 1: a single deliberate mark
   if(marking && dlOn(sh) && !(sh.dl&&sh.dl[k])) dlPrompt={id:sh.id, s, e};
   else if(dlPrompt&&dlPrompt.id===sh.id) dlPrompt=null;
   const after=catOf(sh);
@@ -476,11 +704,38 @@ function toggleEp(id,s,e){
   touch(sh); save(); render();
 }
 let undoState=null;
+/* Putting marks back is itself an action, so the restored keys are stamped
+   now - otherwise the undo would never reach the other device. */
+function restoreMarks(sh, snap){
+  const now=Date.now(); sh.wts=sh.wts||{}; sh.watched=sh.watched||{};
+  for(const k of new Set([...Object.keys(sh.watched),...Object.keys(snap)])){
+    const had=Object.prototype.hasOwnProperty.call(sh.watched,k);
+    const want=Object.prototype.hasOwnProperty.call(snap,k);
+    if(had!==want) sh.wts[k]=now;
+  }
+  sh.watched={...snap};
+}
+function applyUndo(){
+  if(!undoState) return;
+  if(undoState.kind==="show"){
+    const sh=undoState.show;
+    if(!db.some(x=>x.id===sh.id)){
+      db.splice(Math.min(undoState.index,db.length),0,sh);
+      delete delMap[sh.id]; metaDirty=true; deadShows.delete(sh.id);
+      touch(sh); save(); render();
+    }
+  } else {
+    const sh=db.find(x=>x.id===undoState.id);
+    if(sh){ restoreMarks(sh,undoState.watched); touch(sh); save(); render(); }
+  }
+  undoState=null;
+}
 function markBulkDownloaded(id, scope){
   const sh=db.find(x=>x.id===id); if(!sh) return;
-  sh.dl=sh.dl||{}; let n=0;
+  let n=0;
   for(const se of sh.seasons){ if(scope!=="all"&&se.season!==+scope) continue;
-    for(const ep of se.eps){ const k=epK(se.season,ep.e); if(sh.watched[k]&&!sh.dl[k]){ sh.dl[k]=1; n++; } } }
+    for(const ep of se.eps){ const k=epK(se.season,ep.e);
+      if(sh.watched&&sh.watched[k]&&!(sh.dl&&sh.dl[k])){ setDl(sh,k,true); n++; } } }
   touch(sh); save(); render();
   toast(`${n} episode${n===1?"":"s"} marked downloaded.`);
 }
@@ -493,38 +748,49 @@ function toastUndo(t, dlScope, dlId){
   if(dlScope){ document.getElementById("dlBulkBtn").onclick=()=>{
     el.classList.add("hidden"); el.textContent=""; undoState=null; markBulkDownloaded(dlId, dlScope); }; }
   document.getElementById("undoBtn").onclick=()=>{
-    if(undoState){ const sh=db.find(x=>x.id===undoState.id);
-      if(sh){ sh.watched=undoState.watched; touch(sh); save(); render(); } }
-    undoState=null; el.classList.add("hidden"); el.textContent="";
+    applyUndo(); el.classList.add("hidden"); el.textContent="";
   };
 }
 function markSeason(id,s,on){
-  const sh=db.find(x=>x.id===id); const seas=sh.seasons.find(x=>x.season===s);
+  const sh=db.find(x=>x.id===id); if(!sh) return;
+  const seas=sh.seasons.find(x=>x.season===s); if(!seas) return;
   if(dlOn(sh) && markMode[sh.id]==="dl"){
     undoState=null;
-    sh.dl=sh.dl||{};
     for(const ep of seas.eps){ const k=epK(s,ep.e);
-      if(on && sh.watched[k]) sh.dl[k]=1; if(!on) delete sh.dl[k]; }
+      if(on && sh.watched&&sh.watched[k]) setDl(sh,k,true);
+      if(!on) setDl(sh,k,false); }
     touch(sh); save(); render();
     toast(on? "Season "+s+" watched eps marked downloaded.":"Season "+s+" download marks cleared.");
     return;
   }
-  undoState={id:sh.id, watched:{...sh.watched}};
+  undoState={kind:"marks", id:sh.id, watched:{...(sh.watched||{})}};
   for(const ep of seas.eps){ const k=epK(s,ep.e);
-    if(on&&aired(sh,ep)) sh.watched[k]=1; if(!on) delete sh.watched[k]; }
+    if(on&&aired(sh,ep)) setWatched(sh,k,true,1);
+    if(!on) setWatched(sh,k,false); }
   touch(sh); save(); render();
   toastUndo(on? "Season "+s+" marked.":"Season "+s+" cleared.", (on&&dlOn(sh))? String(s):null, sh.id);
 }
 function catchUp(id){
-  const sh=db.find(x=>x.id===id);
-  undoState={id:sh.id, watched:{...sh.watched}};
-  sh.watched={};
-  for(const s of sh.seasons) for(const ep of s.eps) if(aired(sh,ep)) sh.watched[epK(s.season,ep.e)]=1;
+  const sh=db.find(x=>x.id===id); if(!sh) return;
+  undoState={kind:"marks", id:sh.id, watched:{...(sh.watched||{})}};
+  for(const k of Object.keys(sh.watched||{})) setWatched(sh,k,false);
+  for(const s of sh.seasons) for(const ep of s.eps) if(aired(sh,ep)) setWatched(sh,epK(s.season,ep.e),true,1);
   touch(sh); save(); render();
   toastUndo(`Caught up — moved to ${LABEL[catOf(sh)]}.`, dlOn(sh)? "all":null, sh.id);
 }
-function markNext(id){ const sh=db.find(x=>x.id===id); const n=nextUnwatched(sh); if(n) toggleEp(id,n.s,n.e); }
-function removeShow(id){ db=db.filter(s=>s.id!==id); delMap[id]=Date.now(); confirmDel=null; if(openId===id) openId=null; save(); render(); }
+function markNext(id){ const sh=db.find(x=>x.id===id); const n=sh&&nextUnwatched(sh); if(n) toggleEp(id,n.s,n.e); }
+function removeShow(id){
+  const i=db.findIndex(s=>s.id===id); if(i<0) return;
+  const sh=db[i];
+  // Marking a season has had an Undo since v43; removing a show with two
+  // hundred watched episodes did not. Now it does.
+  undoState={kind:"show", show:sh, index:i};
+  db.splice(i,1); deadShows.add(id); dirtyShows.delete(id);
+  delMap[id]=Date.now(); metaDirty=true;
+  confirmDel=null; if(openId===id) openId=null;
+  save(); render();
+  toastUndo(`${sh.title} removed.`);
+}
 
 /* ================= export / import ================= */
 function exportDb(){
@@ -537,8 +803,9 @@ function importDb(file){
   const r=new FileReader();
   r.onload=()=>{ try{ const j=JSON.parse(r.result);
       if(Array.isArray(j.shows)){ db=j.shows; db.forEach(x=>touch(x));
-        if(Array.isArray(j.movies)){ movies=j.movies; movies.forEach(x=>x.updatedAt=Date.now()); }
-        save(); render(); toast(`Imported ${db.length} shows${Array.isArray(j.movies)? ", "+movies.length+" movies":""}.`); }
+        if(Array.isArray(j.movies)){ movies=j.movies; movies.forEach(x=>touchMovie(x)); }
+        saveAll().then(()=>{ schedulePush(); render();
+          toast(`Imported ${db.length} shows${Array.isArray(j.movies)? ", "+movies.length+" movies":""}.`); }); }
       else toast("Not a Signal backup file.");
     }catch(e){ toast("Import failed — invalid file."); } };
   r.readAsText(file);
@@ -684,7 +951,7 @@ function renderMovieDiscover(){
   for(const it of items){
     h+=`<div class="result" style="cursor:default">
       ${it.poster
-        ? `<img src="${esc(it.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
+        ? `<img src="${imgSrc(it.poster)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
         : `<span style="width:42px;height:63px;border-radius:6px;background:#101120;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:var(--faint);flex-shrink:0">${esc((it.title||"?").slice(0,1).toUpperCase())}</span>`}
       <span style="flex:1;min-width:0"><b>${esc(it.title)}</b><br>
         <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(it.date)}</span></span>
@@ -705,7 +972,7 @@ function renderShowDiscover(){
   if(!myPlatforms.length)
     return `<div class="empty">Pick your subscriptions first — open settings (⚙) and tick Netflix, Prime, JioHotstar etc. Discover will list new premieres on them.</div>`;
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div class="sect mono" style="margin:0">PREMIERES · NEXT 60 DAYS · ${myPlatforms.map(id=>PLATFORMS.find(p=>p.id===id).label).join(" / ")}</div>
+    <div class="sect mono" style="margin:0">PREMIERES · NEXT 60 DAYS · ${myPlatforms.map(id=>(PLATFORMS.find(p=>p.id===id)||{}).label).filter(Boolean).join(" / ")}</div>
     <button class="btn" data-discrefresh="1" ${discLoading?"disabled":""}>${discLoading?"…":"⟳"}</button></div>`;
   if(discLoading) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin-bottom:10px">Downloading the full schedule (a few MB, once a day)…</div>`;
   const dAll=(discCache&&discCache.items)||[];
@@ -730,7 +997,8 @@ function renderShowDiscover(){
     }
     h+=`<div>
       <div class="result" style="cursor:default;${open?"margin-bottom:0":""}">
-        <img src="${it.poster||''}" alt="" onerror="this.style.visibility='hidden'">
+        ${it.poster? `<img src="${imgSrc(it.poster)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+           : `<span class="fallposter" style="width:42px;height:63px;font-size:18px">${esc((it.title||"?").slice(0,1).toUpperCase())}</span>`}
         <button data-discopen="${it.id}" style="flex:1;min-width:0;background:none;border:none;padding:0;text-align:left;font-family:inherit;color:var(--text);cursor:pointer"><b>${esc(it.title)}</b>
           <span class="mono" style="font-size:11px;color:var(--violet)"> S${it.season} · ${fmtDate(it.date)}${it.ts?" · "+fmtTime(it.ts):""}</span><br>
           <span class="chip">${esc(it.platform)}</span></button>
@@ -771,7 +1039,6 @@ function render(){
       ${!legacy? `<div class="mono" style="font-size:10px;color:var(--faint);margin-top:8px">Run "Import from TV Time" once (you can cancel at the picker) to capture your lifetime count and start date.</div>`:""}
     </div>`;
   }
-  $("backupNag").insertAdjacentHTML("beforebegin","");
   $("statsCard").innerHTML=statsCard;
 
   const stale=db.some(s=>!dropped(s)&&(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
@@ -786,9 +1053,18 @@ function render(){
     : nagDue? `<div style="display:flex;align-items:center;gap:10px;border:1px solid rgba(227,107,107,.4);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--dim)">
     <span style="flex:1">No sync, no recent backup — one browser-data clear loses everything.</span>
     <button class="btn hot" id="nagExport">Export</button><button class="btn" id="nagLater">Later</button></div>`:"";
+  // Where the reader was, before the whole view is thrown away and rebuilt.
+  // Without this, typing in a filter lost the cursor on every keystroke and
+  // marking an episode bounced you back up the page.
+  const ae=document.activeElement;
+  const keepId=(ae&&ae.id)||null;
+  const keepSel=(keepId&&typeof ae.selectionStart==="number")? ae.selectionStart : null;
+  const keepY=window.scrollY;
   $("view").innerHTML = tab==="discover"? renderDiscover(): tab==="movies"? renderMovies(): renderShows();
-  bindView();
-  if(tab==="movies") bindMovies();
+  if(keepId){ const back=$(keepId);
+    if(back&&back!==document.activeElement){ try{ back.focus({preventScroll:true}); }catch(e){ back.focus(); }
+      if(keepSel!=null&&back.setSelectionRange){ try{ back.setSelectionRange(keepSel,keepSel); }catch(e){} } } }
+  if(window.scrollY!==keepY) window.scrollTo(0,keepY);
   if(storageFull){ const fe=$("fullExport"); if(fe) fe.onclick=()=>{ exportDb(); updateStorageMeter(); }; }
   else if(nagDue){ $("nagExport").onclick=()=>{ exportDb(); render(); }; $("nagLater").onclick=()=>{ store("signal.nagsnooze",String(Date.now()+7*864e5)); render(); }; }
 }
@@ -839,7 +1115,7 @@ function catOf(sh){
 function renderShows(){
   if(!db.length) return `<div style="border:1px solid var(--line);border-radius:12px;padding:22px 16px;text-align:center">
     <div class="sect mono" style="color:var(--amber)">WELCOME TO SIGNAL</div>
-    <div style="font-size:13px;color:var(--dim);line-height:1.7">Search any series above — Hindi, Korean, English, anything.<br>Tap cells to mark watched; dashed cells haven't aired yet.</div></div>`;
+    <div style="font-size:13px;color:var(--dim);line-height:1.7">Tap &#65291; Add at the top to find any series — Hindi, Korean, English, anything.<br>Then tap the numbered cells to mark episodes watched; dashed ones haven't aired yet.</div></div>`;
   const counts={watching:0,waiting:0,done:0};
   db.forEach(s=>counts[catOf(s)]++);
   const listAll=db.filter(s=>catOf(s)===libTab);
@@ -864,16 +1140,28 @@ function renderShows(){
     }
     if(upNext.length){
       h+=`<section style="margin-bottom:24px"><div class="sect mono">UP NEXT</div>`;
-      for(const {s,n} of upNext){
+      upNext.forEach(({s,n}, idx)=>{
         const pr = dlPrompt && dlPrompt.id===s.id? dlPrompt : null;
         const line = pr? `S${pad(pr.s)}E${pad(pr.e)} watched — downloaded it?` : `S${pad(n.s)}E${pad(n.e)}${n.name? " · "+esc(n.name):""}${s.watchOn&&s.watchOn[0]? " · "+esc(s.watchOn[0]):""}`;
         const btn = pr? `<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-dlnext="${s.id}:${pr.s}:${pr.e}">\uD83D\uDCE5 Mark downloaded</button>` : `<button class="btn hot" data-next="${s.id}">Mark watched</button>`;
-        h+=`
-        <div style="display:flex;align-items:center;gap:12px;background:var(--cardup);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px">
-          <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.title)}</div>
-          <div class="mono" style="font-size:11px;color:${pr?"var(--cyan)":"var(--cyan)"}">${line}</div></div>
-          ${btn}</div>`;
-      }
+        // The first one is the answer to "what do I put on now", so it gets the
+        // poster and room to breathe. The rest stay one line each.
+        if(idx===0){
+          h+=`<div class="hero">
+            ${s.poster? `<img class="poster" src="${imgSrc(s.poster)}" alt="" loading="lazy" onerror="this.remove()">`
+                      : `<span class="fallposter" style="width:56px;height:84px;font-size:24px">${esc((s.title||"?").slice(0,1).toUpperCase())}</span>`}
+            <div style="flex:1;min-width:0">
+              <div class="htitle">${esc(s.title)}</div>
+              <div class="hep mono">${line}</div>
+              ${btn}
+            </div></div>`;
+        } else {
+          h+=`<div class="row">
+            <div style="flex:1;min-width:0"><div class="ttl clip">${esc(s.title)}</div>
+            <div class="mono clip" style="font-size:11px;color:var(--cyan)">${line}</div></div>
+            ${btn}</div>`;
+        }
+      });
       h+=`</section>`;
     }
     const soon=db.filter(x=>!dropped(x)).map(sh=>({sh,si:soonInfo(sh)}))
@@ -990,7 +1278,7 @@ function renderShows(){
       else if(cat2==="waiting"){ const si=soonInfo(sh);
         sub= (si&&sh.nextEp)? `S${pad(sh.nextEp.s)}E${pad(sh.nextEp.e)} · ${fmtDate(si.dateStr||localDate(si.ts))}`: "Awaiting schedule"; }
       h+=`<button class="tile" data-open="${sh.id}">
-        <span class="pwrap">${sh.poster?`<img src="${sh.poster}" alt="" loading="lazy" onerror="this.remove()">`:""}<span class="fallback">${esc((sh.title||"?").slice(0,1).toUpperCase())}</span>
+        <span class="pwrap">${sh.poster?`<img src="${imgSrc(sh.poster)}" alt="" loading="lazy" onerror="this.remove()">`:""}<span class="fallback">${esc((sh.title||"?").slice(0,1).toUpperCase())}</span>
           <span class="dot" style="background:${dot}"></span>
           ${!isUp(sh)?`<span class="pbar"><span style="display:block;height:100%;width:${pct2}%;background:var(--amber)"></span></span>`:""}
         </span>
@@ -1014,7 +1302,7 @@ function renderShows(){
     h+=`<div class="card" ${isOpen?'style="border-color:var(--faint)"':""}>
       <button class="cardhead" data-open="${sh.id}">
         <div style="display:flex;gap:12px">
-          ${sh.poster?`<img class="poster" src="${sh.poster}" alt="" loading="lazy" onerror="this.style.display='none'">`:""}
+          ${sh.poster?`<img class="poster" src="${imgSrc(sh.poster)}" alt="" loading="lazy" onerror="this.style.display='none'">`:""}
           <div style="flex:1;min-width:0">
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
               <div style="font-weight:800;font-size:16px">${esc(sh.title)} <span style="color:var(--faint);font-weight:500;font-size:12px">${sh.year||""}</span></div>
@@ -1098,7 +1386,7 @@ function renderShows(){
             h+=`<button class="cell${on?" on":""}${dl?" dl":""}${ok?"":" locked"}" ${ok?"":"disabled"}
               data-ep="${sh.id}:${seas.season}:${ep.e}"
               title="S${pad(seas.season)}E${pad(ep.e)}${ep.name?" · "+esc(ep.name):""}${ok?(epDate(ep)?" · aired "+epDate(ep):""):" — airs "+(epDate(ep)||"TBA")+(ep.ts?" "+fmtTime(ep.ts):"")}"
-              aria-label="Season ${seas.season} episode ${ep.e}, ${ok?(on?"watched":"not watched"):"not aired yet"}"></button>`;
+              aria-label="Season ${seas.season} episode ${ep.e}, ${ok?(on?"watched":"not watched"):"not aired yet"}">${ep.e}</button>`;
           }
           h+=`</div></div>`;
         }
@@ -1111,76 +1399,133 @@ function renderShows(){
 }
 
 
-function bindView(){
-  const ss=$("sortSel");
-  if(ss) ss.onchange=()=>{ showSort=ss.value; store("signal.sort",showSort); render(); };
-  const sf=$("sf");
-  if(sf){ sf.oninput=()=>{ showFilter=sf.value; const keep=sf.selectionStart; render();
-    const nf=$("sf"); if(nf){ nf.focus(); nf.setSelectionRange(keep,keep); } }; }
-  document.querySelectorAll("[data-lib]").forEach(b=>b.onclick=()=>{ libTab=b.dataset.lib; openId=null; render(); });
-  document.querySelectorAll("[data-viewtoggle]").forEach(b=>b.onclick=()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); });
-  document.querySelectorAll("[data-schedtoggle]").forEach(b=>b.onclick=()=>{ schedOpen=!schedOpen; render(); });
-  document.querySelectorAll("[data-dlexp]").forEach(b=>b.onclick=()=>{ dlOpen=!dlOpen; render(); });
-  document.querySelectorAll("[data-dlnext]").forEach(b=>b.onclick=()=>{ const [id,ss,ee]=b.dataset.dlnext.split(":").map(Number);
-    const sh=db.find(x=>x.id===id); sh.dl=sh.dl||{}; sh.dl[epK(ss,ee)]=1; dlPrompt=null;
-    touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded \u2713`); });
-  document.querySelectorAll("[data-dlep]").forEach(b=>b.onclick=()=>{ const [id,ss,ee]=b.dataset.dlep.split(":").map(Number);
-    const sh=db.find(x=>x.id===id); sh.dl=sh.dl||{}; sh.dl[epK(ss,ee)]=1;
-    touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded \u2713`); });
-  document.querySelectorAll("[data-mvpend]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvpend);
-    m.dl=true; m.dlWant=false; m.updatedAt=Date.now(); save(); render(); toast(`${m.title} downloaded \u2713`); });
-  document.querySelectorAll("[data-dlmore]").forEach(b=>b.onclick=()=>{ dlShowAll[+b.dataset.dlmore]=!dlShowAll[+b.dataset.dlmore]; render(); });
-  document.querySelectorAll("[data-dlall]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.dlall);
-    sh.dl=sh.dl||{}; let n=0;
+/* One listener for the whole page instead of several hundred onclick
+   assignments on every redraw. Every button keeps the data-* attribute it
+   always had; what used to be the body of the querySelectorAll loop now lives
+   here, keyed by that attribute name. The nearest match wins as the event
+   bubbles, which is also why data-sexp no longer needs stopPropagation. */
+const ACTIONS = {
+  lib:(v)=>{ libTab=v; openId=null; render(); },
+  viewtoggle:()=>{ viewMode=viewMode==="grid"?"list":"grid"; store("signal.view",viewMode); openId=null; render(); },
+  schedtoggle:()=>{ schedOpen=!schedOpen; render(); },
+  dlexp:()=>{ dlOpen=!dlOpen; render(); },
+  dlnext:(v)=>{ const [id,ss,ee]=v.split(":").map(Number); const sh=db.find(x=>x.id===id); if(!sh) return;
+    setDl(sh,epK(ss,ee),true); dlPrompt=null; touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded ✓`); },
+  dlep:(v)=>{ const [id,ss,ee]=v.split(":").map(Number); const sh=db.find(x=>x.id===id); if(!sh) return;
+    setDl(sh,epK(ss,ee),true); touch(sh); save(); render(); toast(`S${pad(ss)}E${pad(ee)} downloaded ✓`); },
+  mvpend:(v)=>{ const m=movieById(v); if(!m) return;
+    m.dl=true; m.dlWant=false; touchMovie(m); save(); render(); toast(`${m.title} downloaded ✓`); },
+  dlmore:(v)=>{ dlShowAll[+v]=!dlShowAll[+v]; render(); },
+  dlall:(v)=>{ const sh=db.find(x=>x.id===+v); if(!sh) return; let n=0;
     for(const se of sh.seasons) for(const ep of se.eps){ const k=epK(se.season,ep.e);
-      if(typeof sh.watched[k]==="number"&&sh.watched[k]>1&&!sh.dl[k]){ sh.dl[k]=1; n++; } }
-    touch(sh); save(); render(); toast(`${sh.title} — ${n} episode${n>1?"s":""} marked downloaded.`); });
-  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const opening = openId!==+b.dataset.open; openId=opening? +b.dataset.open : null; confirmDel=null; render(); if(opening && viewMode==="grid" && libTab!=="waiting") window.scrollTo({top:0}); });
-  document.querySelectorAll("[data-sexp]").forEach(b=>b.onclick=(ev)=>{ ev.stopPropagation(); const k=b.dataset.sexp;
-    const sid=+k.split(":")[0]; const sh=db.find(x=>x.id===sid);
-    const sn=+k.split(":")[1]; const seas=sh.seasons.find(x=>x.season===sn);
+      if(typeof (sh.watched||{})[k]==="number"&&sh.watched[k]>1&&!(sh.dl&&sh.dl[k])){ setDl(sh,k,true); n++; } }
+    touch(sh); save(); render(); toast(`${sh.title} — ${n} episode${n===1?"":"s"} marked downloaded.`); },
+  open:(v)=>{ const opening = openId!==+v; openId=opening? +v : null; confirmDel=null;
+    render(); if(opening && viewMode==="grid" && libTab!=="waiting") window.scrollTo({top:0}); },
+  sexp:(k)=>{ const sid=+k.split(":")[0], sn=+k.split(":")[1];
+    const sh=db.find(x=>x.id===sid); if(!sh) return;
+    const seas=sh.seasons.find(x=>x.season===sn); if(!seas) return;
     const airedIn=seas.eps.filter(ep=>aired(sh,ep)).length;
-    const onIn=seas.eps.filter(ep=>sh.watched[epK(sn,ep.e)]).length;
-    const defaultOpen = airedIn>0 && onIn<airedIn;
-    const cur=(k in seasonToggle)? seasonToggle[k] : defaultOpen;
-    seasonToggle[k]=!cur; render(); });
-  document.querySelectorAll("[data-ep]").forEach(b=>b.onclick=()=>{ const [id,s,e]=b.dataset.ep.split(":").map(Number); toggleEp(id,s,e); });
-  document.querySelectorAll("[data-season]").forEach(b=>b.onclick=()=>{ const [id,s,on]=b.dataset.season.split(":").map(Number); markSeason(id,s,!!on); });
-  document.querySelectorAll("[data-next]").forEach(b=>b.onclick=()=>markNext(+b.dataset.next));
-  document.querySelectorAll("[data-catchup]").forEach(b=>b.onclick=()=>catchUp(+b.dataset.catchup));
-  document.querySelectorAll("[data-dltrack]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.dltrack);
+    const onIn=seas.eps.filter(ep=>(sh.watched||{})[epK(sn,ep.e)]).length;
+    const cur=(k in seasonToggle)? seasonToggle[k] : (airedIn>0 && onIn<airedIn);
+    seasonToggle[k]=!cur; render(); },
+  ep:(v)=>{ const [id,s2,e2]=v.split(":").map(Number); toggleEp(id,s2,e2); },
+  season:(v)=>{ const [id,s2,on]=v.split(":").map(Number); markSeason(id,s2,!!on); },
+  next:(v)=>markNext(+v),
+  catchup:(v)=>catchUp(+v),
+  dltrack:(v)=>{ const sh=db.find(x=>x.id===+v); if(!sh) return;
     sh.dlTrack = dlOn(sh)? false : true; touch(sh); save(); render();
-    toast(dlOn(sh)? "Download reminders on — new watches will ask about downloading.":"Download reminders off for this show (marks kept)."); });
-  document.querySelectorAll("[data-mm]").forEach(b=>b.onclick=()=>{ const [id,mode]=b.dataset.mm.split(":"); markMode[+id]=mode; render(); });
-  document.querySelectorAll("[data-bucket]").forEach(b=>b.onclick=()=>{ const [id,mode]=b.dataset.bucket.split(":"); const sh=db.find(x=>x.id===+id);
+    toast(dlOn(sh)? "Download reminders on — new watches will ask about downloading.":"Download reminders off for this show (marks kept)."); },
+  mm:(v)=>{ const [id,mode]=v.split(":"); markMode[+id]=mode; render(); },
+  bucket:(v)=>{ const [id,mode]=v.split(":"); const sh=db.find(x=>x.id===+id); if(!sh) return;
     sh.bucketOverride = (mode==="resume")? null : mode; touch(sh); save(); render();
     toast(mode==="dropped"? `${sh.title} dropped. Your watched episodes are kept.`
       : mode==="resume"? `${sh.title} — following again.`
-      : `${sh.title} — filed under ${mode==="done"?"DONE":"UP TO DATE"}.`); });
-  document.querySelectorAll("[data-unlock]").forEach(b=>b.onclick=()=>{ const sh=db.find(x=>x.id===+b.dataset.unlock); sh.unlockAll=!sh.unlockAll; touch(sh); save(); render(); toast(sh.unlockAll?"All cells unlocked for this show — you're on manual control.":"Air-date locking restored."); });
-  document.querySelectorAll("[data-sync]").forEach(b=>b.onclick=()=>syncShow(+b.dataset.sync));
-  document.querySelectorAll("[data-manadd]").forEach(b=>b.onclick=()=>manualAddEps(+b.dataset.manadd));
-  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ confirmDel=+b.dataset.del; render(); });
-  document.querySelectorAll("[data-delyes]").forEach(b=>b.onclick=()=>removeShow(+b.dataset.delyes));
-  document.querySelectorAll("[data-delno]").forEach(b=>b.onclick=()=>{ confirmDel=null; render(); });
-  document.querySelectorAll("[data-discadd]").forEach(b=>b.onclick=()=>{ b.disabled=true; b.textContent="…"; addShow(+b.dataset.discadd); });
-  document.querySelectorAll("[data-discopen]").forEach(b=>b.onclick=()=>{
-    const id=+b.dataset.discopen;
-    discOpen = discOpen===id? null : id;
+      : `${sh.title} — filed under ${mode==="done"?"DONE":"UP TO DATE"}.`); },
+  unlock:(v)=>{ const sh=db.find(x=>x.id===+v); if(!sh) return; sh.unlockAll=!sh.unlockAll; touch(sh); save(); render();
+    toast(sh.unlockAll?"All cells unlocked for this show — you're on manual control.":"Air-date locking restored."); },
+  sync:(v)=>syncShow(+v),
+  manadd:(v)=>manualAddEps(+v),
+  del:(v)=>{ confirmDel=+v; render(); },
+  delyes:(v)=>removeShow(+v),
+  delno:()=>{ confirmDel=null; render(); },
+  discadd:(v,el)=>{ el.disabled=true; el.textContent="…"; addShow(+v); },
+  discopen:(v)=>{ const id=+v; discOpen = discOpen===id? null : id;
     const need = discOpen===id && !discDetail[id];
     render();
-    if(need){ const it=((discCache&&discCache.items)||[]).find(x=>x.id===id); if(it) discDetails(it); }
-  });
-  document.querySelectorAll("[data-disctab]").forEach(b=>b.onclick=()=>{ discTab=b.dataset.disctab; render();
-    if(discTab==="movies") fetchMovieDiscover(false); });
-  document.querySelectorAll("[data-mdiscrefresh]").forEach(b=>b.onclick=()=>fetchMovieDiscover(true));
-  document.querySelectorAll("[data-mdiscadd]").forEach(b=>b.onclick=()=>{
-    const it=((mdiscCache&&mdiscCache.items)||[]).find(x=>x.qid===b.dataset.mdiscadd); if(!it) return;
-    movies.unshift({ id:"mv-"+it.qid, title:it.title, year:+it.date.slice(0,4), releaseDate:it.date, runtime:null,
-      watched:false, watchedAt:null, dlWant:false, dl:false, addedAt:Date.now(), updatedAt:Date.now() });
-    save(); render(); toast(`${it.title} added to your watchlist.`); });
-  document.querySelectorAll("[data-discrefresh]").forEach(b=>b.onclick=()=>fetchDiscover(true));
-}
+    if(need){ const it=((discCache&&discCache.items)||[]).find(x=>x.id===id); if(it) discDetails(it); } },
+  disctab:(v)=>{ discTab=v; render(); if(discTab==="movies") fetchMovieDiscover(false); },
+  mdiscrefresh:()=>fetchMovieDiscover(true),
+  mdiscadd:(v)=>{ const it=((mdiscCache&&mdiscCache.items)||[]).find(x=>x.qid===v); if(!it) return;
+    const m={ id:"mv-"+it.qid, title:it.title, year:+it.date.slice(0,4), releaseDate:it.date, runtime:null,
+      watched:false, watchedAt:null, dlWant:false, dl:false, addedAt:Date.now(), updatedAt:Date.now() };
+    movies.unshift(m); dirtyMovies.add(m.id); save(); render(); toast(`${it.title} added to your watchlist.`); },
+  discrefresh:()=>fetchDiscover(true),
+
+  /* ---- movies ---- */
+  mqgo:()=>{ const el=$("mq"); movSearch(el? el.value : movQuery); },
+  mvadd:async(v,el)=>{ const hit=movResults.find(x=>x.id===v); if(!hit) return;
+    if(movies.some(m=>m.id==="mv-"+hit.id)){ toast("Already in your movies."); return; }
+    el.disabled=true; const b=el.querySelector("b"); if(b) b.textContent=hit.label+" …";
+    try{ const det=await wdDetails(hit.id); addMovieFromWd(hit,det); movResults=[]; render(); toast(`Added ${hit.label}.`); }
+    catch(e){ toast("Details fetch failed — try again."); el.disabled=false; render(); } },
+  mvmanual:()=>manualMovieForm(),
+  mvopen:(v)=>{ movOpenId = movOpenId===v? null : v; movConfirmDel=null; render(); },
+  mvdate:(v)=>{ const m=movieById(v); if(!m) return;
+    const inp=$("mvd-"+m.id); const val=inp? inp.value : "";
+    m.releaseDate = val||null; m.year = val? +val.slice(0,4) : null; touchMovie(m); save(); render();
+    toast(val? `${m.title} — release set to ${val}.` : `${m.title} — release date cleared.`); },
+  mvtitle:(v)=>{ const m=movieById(v); if(!m) return;
+    const inp=$("mvt-"+m.id); const val=inp? inp.value.trim():"";
+    if(!val){ toast("A title is required."); return; }
+    m.title=val; touchMovie(m); save(); render(); toast("Title updated."); },
+  mvref:async(v,el)=>{ const m=movieById(v); if(!m) return;
+    if(!navigator.onLine){ toast("Refresh needs internet."); return; }
+    el.disabled=true;
+    try{ const det=await wdDetails(m.id.slice(3));
+      if(det.rel){ m.releaseDate=det.rel; m.year=+det.rel.slice(0,4); }
+      if(det.run) m.runtime=det.run;
+      touchMovie(m); save(); render();
+      toast(det.rel? `${m.title} — release ${det.rel}.` : `${m.title} — Wikidata still has no release date.`);
+    }catch(e){ el.disabled=false; toast("Refresh failed — check connection."); } },
+  mvclear:()=>{ movResults=[]; render(); },
+  movtab:(v)=>{ movTab=v; movConfirmDel=null; mvPrompt=null; render(); },
+  mvw:(v)=>{ const m=movieById(v); if(!m) return;
+    m.watched=!m.watched;
+    if(m.watched){ m.watchedAt=todayISO(); if(!m.dl){ m.dlWant=true; mvPrompt=m.id; } }
+    else { m.watchedAt=null; m.dlWant=false; mvPrompt=null; }
+    touchMovie(m); save(); render();
+    toast(m.watched? `${m.title} watched ✓${!m.dl?" — downloaded it?":""}` : `${m.title} moved to watchlist.`); },
+  mvdlgo:(v)=>{ const m=movieById(v); if(!m) return;
+    m.dl=true; m.dlWant=false; mvPrompt=null; touchMovie(m); save(); render(); toast(`${m.title} downloaded ✓`); },
+  mvskip:(v)=>{ const m=movieById(v); if(!m) return;
+    m.dlWant=false; mvPrompt=null; touchMovie(m); save(); render(); toast(`Okay — no download reminder for ${m.title}.`); },
+  mvdel:(v)=>{ movConfirmDel=v; render(); },
+  mvdelyes:(v)=>{ movies=movies.filter(m=>m.id!==v); deadMovies.add(v); dirtyMovies.delete(v);
+    delMap[v]=Date.now(); metaDirty=true; movConfirmDel=null; save(); render(); },
+};
+const ACT_KEYS=Object.keys(ACTIONS);
+document.addEventListener("click",(ev)=>{
+  let el=ev.target;
+  while(el && el.nodeType===1){
+    if(el.dataset) for(const k of ACT_KEYS) if(k in el.dataset){ ACTIONS[k](el.dataset[k], el, ev); return; }
+    el=el.parentElement;
+  }
+});
+document.addEventListener("input",(ev)=>{
+  const t=ev.target;
+  if(t.id==="sf"){ showFilter=t.value; render(); }
+  else if(t.id==="mf"){ movFilter=t.value; render(); }
+  else if(t.id==="mq"){ movQuery=t.value; }
+});
+document.addEventListener("change",(ev)=>{
+  const t=ev.target;
+  if(t.id==="sortSel"){ showSort=t.value; store("signal.sort",showSort); render(); }
+  else if(t.id==="movSortSel"){ movSort=t.value; store("signal.movsort",movSort); render(); }
+});
+document.addEventListener("keydown",(ev)=>{
+  if(ev.key==="Enter" && ev.target.id==="mq") movSearch(ev.target.value);
+});
 
 /* ================= movies: Wikidata search + tracking ================= */
 const WD="https://www.wikidata.org/w/api.php";
@@ -1220,9 +1565,10 @@ function manualMovieForm(){
     if(!t){ toast("A title is required."); return; }
     if(movies.some(m=>(m.title||"").toLowerCase()===t.toLowerCase())){ toast("Already in your movies."); return; }
     const d=el.querySelector("#mmDate").value||null;
-    movies.unshift({ id:"mvman-"+Date.now(), title:t, year: d? +d.slice(0,4): null, releaseDate:d, runtime:null,
+    const nm={ id:"mvman-"+Date.now(), title:t, year: d? +d.slice(0,4): null, releaseDate:d, runtime:null,
       watched:false, watchedAt:null, dlWant:false, dl:false, manual:true,
-      addedAt:Date.now(), updatedAt:Date.now() });
+      addedAt:Date.now(), updatedAt:Date.now() };
+    movies.unshift(nm); dirtyMovies.add(nm.id);
     movTab="watchlist"; movResults=[]; movSearched=false; save(); ttClose();
     toast(`Added ${t} to your watchlist.`);
   });
@@ -1233,13 +1579,13 @@ function addMovieFromWd(hit, det){
     releaseDate: det.rel||null, runtime: det.run||null,
     watched:false, watchedAt:null, dlWant:false, dl:false,
     addedAt:Date.now(), updatedAt:Date.now() };
-  movies.unshift(m); save();
+  movies.unshift(m); dirtyMovies.add(m.id); save();
 }
 
 function renderMovies(){
   let h=`<div style="display:flex;gap:8px;margin-bottom:10px">
     <input id="mq" placeholder="Add a movie — search by title" value="${esc(movQuery)}" style="flex:1">
-    <button class="btn hot" id="mqBtn" ${movBusy?"disabled":""} style="padding:0 14px;font-size:13px;flex-shrink:0">${movBusy?"\u2026":"Search"}</button></div>`;
+    <button class="btn hot" id="mqBtn" data-mqgo="1" ${movBusy?"disabled":""} style="padding:0 14px;font-size:13px;flex-shrink:0">${movBusy?"\u2026":"Search"}</button></div>`;
   if(movResults.length){
     for(const r of movResults) h+=`<button class="result" data-mvadd="${r.id}">
       <span style="flex:1"><b>${esc(r.label)}</b><br><span style="font-size:11px;color:var(--dim)">${esc(r.description||"")}</span></span></button>`;
@@ -1299,7 +1645,7 @@ function renderMovies(){
       </div>
       ${mOpen? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:0 2px 12px">
         <span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.08em">RELEASE DATE</span>
-        <input type="date" id="mvd-${m.id}" value="${m.releaseDate||""}" style="width:auto;padding:5px 8px;font-size:12px">
+        <input type="date" id="mvd-${esc(m.id)}" value="${esc(m.releaseDate||"")}" style="width:auto;padding:5px 8px;font-size:12px">
         <button class="btn" data-mvdate="${m.id}">Save date</button>
         ${m.manual? `<input id="mvt-${m.id}" value="${esc(m.title)}" placeholder="Title" style="width:auto;padding:5px 8px;font-size:12px">
           <button class="btn" data-mvtitle="${m.id}">Save title</button>`:""}
@@ -1313,57 +1659,7 @@ function renderMovies(){
   return h;
 }
 
-function bindMovies(){
-  const mq=$("mq"), mf=$("mf");
-  if(mq){ mq.oninput=()=>{ movQuery=mq.value; };
-    mq.onkeydown=async(e)=>{ if(e.key!=="Enter") return; await movSearch(mq.value); }; }
-  const mb=$("mqBtn"); if(mb) mb.onclick=async()=>{ await movSearch($("mq").value); };
-  const ms2=$("movSortSel");
-  if(ms2) ms2.onchange=()=>{ movSort=ms2.value; store("signal.movsort",movSort); render(); };
-  if(mf){ mf.oninput=()=>{ movFilter=mf.value; const keep=mf.selectionStart; render(); const nf=$("mf"); if(nf){ nf.focus(); nf.setSelectionRange(keep,keep); } }; }
-  document.querySelectorAll("[data-mvadd]").forEach(b=>b.onclick=async()=>{
-    const hit=movResults.find(x=>x.id===b.dataset.mvadd); if(!hit) return;
-    if(movies.some(m=>m.id==="mv-"+hit.id)){ toast("Already in your movies."); return; }
-    b.disabled=true; b.querySelector("b").textContent=hit.label+" \u2026";
-    try{ const det=await wdDetails(hit.id); addMovieFromWd(hit,det); movResults=[]; render(); toast(`Added ${hit.label}.`); }
-    catch(e){ toast("Details fetch failed — try again."); b.disabled=false; render(); }
-  });
-  document.querySelectorAll("[data-mvmanual]").forEach(b=>b.onclick=manualMovieForm);
-  document.querySelectorAll("[data-mvopen]").forEach(b=>b.onclick=()=>{ movOpenId = movOpenId===b.dataset.mvopen? null : b.dataset.mvopen; movConfirmDel=null; render(); });
-  document.querySelectorAll("[data-mvdate]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvdate);
-    const inp=$("mvd-"+m.id); const v=inp? inp.value : "";
-    m.releaseDate = v||null; m.year = v? +v.slice(0,4) : null; m.updatedAt=Date.now(); save(); render();
-    toast(v? `${m.title} \u2014 release set to ${v}.` : `${m.title} \u2014 release date cleared.`); });
-  document.querySelectorAll("[data-mvtitle]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvtitle);
-    const inp=$("mvt-"+m.id); const v=inp? inp.value.trim():"";
-    if(!v){ toast("A title is required."); return; }
-    m.title=v; m.updatedAt=Date.now(); save(); render(); toast("Title updated."); });
-  document.querySelectorAll("[data-mvref]").forEach(b=>b.onclick=async()=>{ const m=movieById(b.dataset.mvref);
-    if(!navigator.onLine){ toast("Refresh needs internet."); return; }
-    b.disabled=true;
-    try{ const det=await wdDetails(m.id.slice(3));
-      if(det.rel){ m.releaseDate=det.rel; m.year=+det.rel.slice(0,4); }
-      if(det.run) m.runtime=det.run;
-      m.updatedAt=Date.now(); save(); render();
-      toast(det.rel? `${m.title} \u2014 release ${det.rel}.` : `${m.title} \u2014 Wikidata still has no release date.`);
-    }catch(e){ b.disabled=false; toast("Refresh failed \u2014 check connection."); }
-  });
-  document.querySelectorAll("[data-mvclear]").forEach(b=>b.onclick=()=>{ movResults=[]; render(); });
-  document.querySelectorAll("[data-movtab]").forEach(b=>b.onclick=()=>{ movTab=b.dataset.movtab; movConfirmDel=null; mvPrompt=null; render(); });
-  document.querySelectorAll("[data-mvw]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvw);
-    m.watched=!m.watched;
-    if(m.watched){ m.watchedAt=new Date().toISOString(); if(!m.dl){ m.dlWant=true; mvPrompt=m.id; } }
-    else { m.watchedAt=null; m.dlWant=false; mvPrompt=null; }
-    m.updatedAt=Date.now(); save(); render();
-    toast(m.watched? `${m.title} watched \u2713${!m.dl?" — downloaded it?":""}` : `${m.title} moved to watchlist.`); });
-  document.querySelectorAll("[data-mvdlgo]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvdlgo);
-    m.dl=true; m.dlWant=false; mvPrompt=null; m.updatedAt=Date.now(); save(); render(); toast(`${m.title} downloaded \u2713`); });
-  document.querySelectorAll("[data-mvskip]").forEach(b=>b.onclick=()=>{ const m=movieById(b.dataset.mvskip);
-    m.dlWant=false; mvPrompt=null; m.updatedAt=Date.now(); save(); render(); toast(`Okay — no download reminder for ${m.title}.`); });
-  document.querySelectorAll("[data-mvdel]").forEach(b=>b.onclick=()=>{ movConfirmDel=b.dataset.mvdel; render(); });
-  document.querySelectorAll("[data-mvdelyes]").forEach(b=>b.onclick=()=>{ const id=b.dataset.mvdelyes;
-    movies=movies.filter(m=>m.id!==id); delMap[id]=Date.now(); movConfirmDel=null; save(); render(); });
-}
+
 async function movSearch(q){
   q=(q||"").trim(); if(!q||movBusy) return;
   if(!navigator.onLine){ toast("Movie search needs internet."); return; }
@@ -1392,7 +1688,7 @@ function mvParseFile(text){
       title:name, year, releaseDate: year&&rel.slice(0,4)!=="0001"? rel:null, runtime:null,
       watched:false, watchedAt:null, dlWant:false, dl:false, addedAt:Date.now(), updatedAt:Date.now() };
     if(type==="watch"||type==="rewatch"){ map[key].watched=true;
-      if(!map[key].watchedAt||when>map[key].watchedAt.slice(0,10)) map[key].watchedAt=when? when+"T00:00:00Z":null; }
+      if(!map[key].watchedAt||when>map[key].watchedAt.slice(0,10)) map[key].watchedAt=when||null; }
   }
   return Object.values(map);
 }
@@ -1434,6 +1730,7 @@ function createManualShow(title, platform, counts){
     watchOn: platform? [platform]:[], firstAir:null, upcoming:false, nextEp:null,
     seasons: counts.map((c,i)=>({season:i+1, eps:Array.from({length:c},(_,j)=>({e:j+1, air:today, ts:null, name:""}))})),
     watched:{}, lastSynced:Date.now(), manual:true };
+  show.addedAt=Date.now();
   touch(show); db.unshift(show); save();
   openId=show.id; libTab=catOf(show); render();
   toast(`Added ${title} (manual) \u2014 mark away.`);
@@ -1589,11 +1886,12 @@ async function ttRun(sel){
       let target=db.find(x=>x.id===found.id);
       if(!target){
         const full=await fetchFullShow(found.id);
+        full.addedAt=Date.now();
         touch(full); db.unshift(full); target=full; added++;
       } else merged++;
       let hit=0;
       for(const seas of target.seasons) for(const ep of seas.eps){
-        if(it.eps[seas.season+"-"+ep.e] && epLive(ep, target.tz, target.airKind)){ target.watched[epK(seas.season,ep.e)]=1; hit++; }
+        if(it.eps[seas.season+"-"+ep.e] && epLive(ep, target.tz, target.airKind)){ setWatched(target,epK(seas.season,ep.e),true,1); hit++; }
       }
       if(hit===0 && !db.find(x=>x.id===found.id && x!==target)){
         skipped.push({n:it.name, r:"added, but episode numbering did not match ("+Object.keys(it.eps).length+" records)"});
@@ -1646,7 +1944,7 @@ $("mvFile").onchange=(e)=>{
     if(!items) toast("Wrong file — use tracking-prod-records.csv (the 1.7MB v1 file) from the TV Time zip.");
     else if(!items.length) toast("No movie records found in that file.");
     else { let added=0;
-      for(const m of items) if(!movies.some(x=>x.id===m.id)){ movies.push(m); added++; }
+      for(const m of items) if(!movies.some(x=>x.id===m.id)){ movies.push(m); dirtyMovies.add(m.id); added++; }
       save(); render(); toast(`Imported ${added} movies (${items.length-added} already present).`); } };
   rd.readAsText(f);
 };
@@ -1666,6 +1964,15 @@ $("importFile").onchange=(e)=>{ if(e.target.files[0]) importDb(e.target.files[0]
 $("addBtn").onclick=doSearch;
 $("q").addEventListener("keydown",e=>{ if(e.key==="Enter") doSearch(); });
 $("syncAllBtn").onclick=syncAll;
+$("verTag").textContent="v"+APP_VERSION;
+
+/* Search is folded away by default so the library starts higher up the page. */
+$("addToggleBtn").onclick=()=>{
+  const panel=$("addPanel"), open=panel.classList.toggle("hidden")===false;
+  $("addToggleBtn").setAttribute("aria-expanded", String(open));
+  if(open){ $("q").focus(); } else { $("q").value=""; $("results").innerHTML=""; $("msg").textContent=""; }
+};
+
 function setTab(t){
   tab=t;
   $("tabShows").classList.toggle("act",t==="shows");
@@ -1679,28 +1986,67 @@ $("tabDisc").onclick=()=>setTab("discover");
 window.addEventListener("online",()=>toast("Back online."));
 window.addEventListener("offline",()=>toast("Offline — your saved data is safe, updates paused."));
 
-if("serviceWorker" in navigator){ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{}); }
+/* The app used to unregister every service worker it found, which is why it
+   could not open at all without a connection - the friendly "your saved data
+   is safe" messages were never reachable offline. Now it registers one. */
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("sw.js").then(reg=>{
+      reg.addEventListener("updatefound",()=>{
+        const w=reg.installing; if(!w) return;
+        w.addEventListener("statechange",()=>{
+          // Cache-first means the tab you are in keeps running the old build.
+          // Say so, rather than leaving you wondering why a change is missing.
+          if(w.state==="installed" && navigator.serviceWorker.controller)
+            toast("A new version downloaded — close and reopen Signal to use it.",8000);
+        });
+      });
+    }).catch(()=>{});
+  });
+}
 
 /* cloud sync wiring */
-$("saveTokenBtn").onclick=()=>{ ghToken=$("tokenInput").value.trim(); store("signal.token",ghToken);
-  if(ghToken){ toast("Sync connected — pulling…"); pullCloud(false).then(()=>schedulePush()); $("settingsPanel").classList.add("hidden"); }
-  updateCloudBadge(); };
+$("saveTokenBtn").onclick=async()=>{
+  const t=$("tokenInput").value.trim();
+  if(!t){ toast("Paste a token first."); return; }
+  $("saveTokenBtn").disabled=true;
+  // Check the token before storing it. v43 accepted anything and then just
+  // failed on every push, for ever, with no clue why.
+  try{
+    const r=await fetch("https://api.github.com/gists?per_page=1",
+      {headers:{Authorization:"Bearer "+t, Accept:"application/vnd.github+json"}});
+    if(r.status===401){ toast("GitHub rejected that token — check you copied all of it."); $("saveTokenBtn").disabled=false; return; }
+    if(r.status===403||r.status===404){ toast("That token has no \"gist\" permission. Make a new one and tick gist."); $("saveTokenBtn").disabled=false; return; }
+    if(!r.ok) throw new Error("HTTP"+r.status);
+  }catch(e){
+    toast("Could not reach GitHub to check the token. Try again when you have a connection.");
+    $("saveTokenBtn").disabled=false; return;
+  }
+  ghToken=t; store("signal.token",ghToken);
+  $("saveTokenBtn").disabled=false;
+  toast("Sync connected — pulling…");
+  pullCloud(false).then(()=>schedulePush());
+  $("settingsPanel").classList.add("hidden");
+  updateCloudBadge();
+};
 $("clearTokenBtn").onclick=()=>{ ghToken=""; gistId=""; store("signal.token",""); store("signal.gistid",""); $("tokenInput").value=""; toast("Sync disconnected. Data stays on this device."); updateCloudBadge(); };
 $("pullNowBtn").onclick=()=>pullCloud(false);
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible") pullCloud(true);
-  else if(pushTimer) pushCloud();
+  else { if(pushTimer) pushCloud(); saveLocal(); }   // flush anything still pending before the tab is frozen
 });
 
-render();
-updateCloudBadge();
-
-/* startup: pull cloud first so merges land before air-date refresh */
+/* Boot. The library now loads from IndexedDB, so the first paint waits for it
+   rather than rendering an empty list and filling it in a moment later. */
 (async()=>{
+  await loadAll();
+  render();
+  updateCloudBadge();
+
   await pullCloud(true);
   if(!navigator.onLine) return;
   const STALE = 12*3600*1000;
-  const targets = db.filter(s=>!dropped(s)&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series")
+  const targets = db.filter(s=>!dropped(s)&&!s.manual&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series")
                             && (!s.lastSynced || Date.now()-s.lastSynced>STALE));
   if(!targets.length) return;
   syncing=true;
@@ -1708,7 +2054,7 @@ updateCloudBadge();
   for(let i=0;i<targets.length;i++){
     try{
       const fresh=await fetchFullShow(targets[i].id, targets[i].watched);
-      Object.assign(targets[i], fresh); touch(targets[i]); save(); render();
+      Object.assign(targets[i], fresh); touch(targets[i]); save();
       $("statusLine").textContent=`Updating ${i+1}/${targets.length}…`;
     }catch(e){}
     await new Promise(r=>setTimeout(r,600));
