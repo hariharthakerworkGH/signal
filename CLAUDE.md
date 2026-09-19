@@ -94,6 +94,24 @@ Numbers first, one short line per item, details behind a tap. A warning is said
 once, never repeated per row. Comments explain why, in plain English,
 especially where a rule looks odd.
 
+Three text tiers - `--text`, `--dim`, `--faint` - and **every one of them
+clears WCAG AA (4.5:1) on all four surfaces** it can land on: the page
+background, `--card`, `--cardup` and the `#191B28` episode cell. A dark theme
+makes it very easy to add a fourth, quieter grey that fails; don't. If a new
+colour is needed, measure it against all four before using it. Disabled
+controls (the dashed unaired cells) are exempt - WCAG does not set a contrast
+requirement for inactive components.
+
+Tap targets are at least 24x24 CSS px with 8px between them. That is the WCAG
+2.2 AA web figure; the 44pt/48dp numbers people quote are iOS and Android
+native guidance and do not apply here.
+
+No emoji as icons, ever - an emoji is a different picture on every platform,
+ignores the palette and cannot take a colour. Icons are inline SVG in the
+`ICON` map, `currentColor`, 1.6 stroke, `aria-hidden` when a text label is
+already beside them. The header still uses a few monochrome symbol glyphs
+(gear, refresh, check); moving those into `ICON` too is unfinished work.
+
 ## Working on it
 
 There is no Node and no git on the owner's machine; Python is `py`.

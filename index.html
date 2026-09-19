@@ -11,7 +11,13 @@
 <style>
   :root {
     --bg:#14151F; --card:#1C1E2C; --cardup:#232538; --line:#2C2F44;
-    --text:#EAE8E1; --dim:#9092A6; --faint:#5C5E72;
+    /* Three text tiers, all of which clear WCAG AA (4.5:1) on every surface
+       they actually sit on - bg, card, cardup and the episode cell.
+       --faint was #5C5E72, which measured 2.4:1 to 2.9:1: section labels, tile
+       subtitles, "synced 4d ago" and the episode numbers were all below the
+       line. Lifting --faint alone put it on top of --dim, so --dim moved up
+       too and the hierarchy survives: 14.8 / 7.3 / 5.5 on the page background. */
+    --text:#EAE8E1; --dim:#A1A3B7; --faint:#8A8CA0;
     --amber:#FFB454; --amberdim:#8A6430; --cyan:#5FD4D0; --violet:#A78BFA; --red:#E36B6B;
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -19,7 +25,8 @@
          /* No webfont ships with the app, so name the stack we actually get.
             The old 'Archivo' here was never loaded and fell back silently. */
          font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
-  .root { max-width:640px; margin:0 auto; padding:20px 16px calc(64px + env(safe-area-inset-bottom)); }
+  .root { max-width:640px; margin:0 auto;
+          padding:calc(20px + env(safe-area-inset-top)) 16px calc(64px + env(safe-area-inset-bottom)); }
   .mono { font-family:ui-monospace,'SF Mono',Menlo,monospace; }
   h1 { font-weight:900; font-size:19px; margin:2px 0 0; letter-spacing:.04em; line-height:1; }
   .eyebrow { font-size:11px; color:var(--cyan); letter-spacing:.18em; }
@@ -39,10 +46,11 @@
   input:focus { outline:none; border-color:var(--amber); }
   /* Every control gets a visible keyboard ring, not just the episode cells. */
   :focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
-  /* 32px, not 26px: this is the control you touch most on a phone. It stays
-     under the 44px guideline on purpose - a season of 44px cells would fit
-     seven to a row and stop reading as a grid. The episode number inside is
-     what actually makes it tappable with confidence. */
+  /* 32px, not 26px: this is the control you touch most on a phone.
+     WCAG 2.2 AA asks for 24 CSS px on the web - the 44pt/48dp figures are
+     iOS and Android native guidance, not web conformance - so 32px with an 8px
+     gap clears it with room to spare, and a season still reads as a grid.
+     The episode number inside is what makes it tappable with confidence. */
   .cell { width:32px; height:32px; border-radius:5px; border:1px solid var(--line);
           background:#191B28; cursor:pointer; padding:0;
           display:flex; align-items:center; justify-content:center;
@@ -90,6 +98,7 @@
   .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
            background:var(--cardup); border:1px solid var(--line); color:var(--text);
            border-radius:8px; padding:10px 16px; font-size:13px; z-index:99; max-width:90vw; }
+  .ico { width:1.05em; height:1.05em; vertical-align:-0.16em; flex-shrink:0; }
   .hidden { display:none !important; }
   .poster { width:46px; height:69px; border-radius:6px; object-fit:cover; background:#101120; flex-shrink:0; }
 
@@ -97,7 +106,11 @@
      scrolling back past the whole header. */
   .navbar { position:sticky; top:0; z-index:40; margin:6px 0 18px;
             background:var(--bg); border-bottom:1px solid var(--line);
-            padding-top:8px; }
+            /* The negative margin cancels the inset in normal flow, so this
+               adds no gap; once stuck, the padding keeps the tabs clear of
+               the status bar instead of under it. Both are 0 on a desktop. */
+            padding-top:calc(8px + env(safe-area-inset-top));
+            margin-top:calc(-1 * env(safe-area-inset-top)); }
   /* UP NEXT is the question the app exists to answer, so the first one gets
      the poster and the big button; the rest stay one line each. */
   .hero { display:flex; gap:14px; align-items:center; background:var(--cardup);
@@ -180,6 +193,7 @@
 
   <div class="stats mono" id="stats"></div>
   <div id="statsCard"></div>
+  <div id="syncNote"></div>
   <div id="backupNag"></div>
 
   <nav class="navbar">
@@ -198,7 +212,7 @@
 /* ================= state & storage =================
    The version the app is running. It must match CACHE_NAME in sw.js, which is
    how the service worker knows a new build has landed. Bump both together. */
-const APP_VERSION = 44;
+const APP_VERSION = 45;
 
 const $ = (id) => document.getElementById(id);
 const todayISO = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
@@ -479,6 +493,7 @@ let dlOpen = false;
 let dlShowAll = {}; // showId -> true when chip list fully expanded
 let dlPrompt = null; // {id,s,e} — just-watched episode awaiting its download answer
 let statsOpen = false;
+let stuckOpen = false;
 let showFilter = "";
 let showSort = store("signal.sort")||"auto";   // auto | az | recent
 let movSort  = store("signal.movsort")||"auto";
@@ -491,6 +506,14 @@ function plain(x){ return String(x||"").replace(/<[^>]+>/g," ")
   .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim(); }
 function byTitle(a,b){ return String(a.title||"").localeCompare(String(b.title||""), undefined, {numeric:true, sensitivity:"base"}); }
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+/* Two inline SVGs where colour emoji used to be. An emoji is a different
+   picture on every platform, ignores the palette, and cannot take a colour;
+   these inherit currentColor like any other text, so the cyan download
+   buttons are actually cyan. Same 1.6 stroke on both, so they sit together. */
+const ICON = {
+  dl:   '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.8v7.4m0 0L5.2 6.4M8 9.2l2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.2 11.4v1.9a.9.9 0 0 0 .9.9h9.8a.9.9 0 0 0 .9-.9v-1.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  find: '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="7" cy="7" r="4.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.3 10.3 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
 /* Poster URLs come from TVmaze and Wikipedia - but also from any backup file
    you import. Dropped into src="..." unescaped, a crafted one could close the
    attribute and run script, and the sync token is sitting in localStorage.
@@ -640,24 +663,26 @@ async function syncShow(id, silent){
   syncing=true; if(!silent) toast(`Syncing ${sh.title}…`,5000); render();
   try{
     const fresh=await fetchFullShow(id, sh.watched);
-    Object.assign(sh, fresh); touch(sh); save();
+    Object.assign(sh, fresh); clearSyncFail(sh); touch(sh); save();
     if(!silent) toast(`${sh.title} synced.`);
-  }catch(e){ if(!silent) toast(`Sync failed for ${sh.title}.`); }
+  }catch(e){ noteSyncFail(sh,e); touch(sh); save();
+    if(!silent) toast(`${sh.title} — ${sh.syncFail.why}.`,6000); }
   syncing=false; render();
 }
 
 async function syncAll(){
   if(syncing) return;
   if(!navigator.onLine){ toast("Offline — sync needs internet."); return; }
-  const targets=db.filter(s=>!dropped(s)&&!s.manual&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series"));
+  // Asked for explicitly, so this one retries the stuck shows too.
+  const targets=db.filter(syncable);
   if(!targets.length){ toast("Nothing active to sync."); return; }
   syncing=true;
   let ok=0; const failed=[];
   for(let i=0;i<targets.length;i++){
     $("statusLine").textContent=`Syncing ${i+1}/${targets.length} — ${targets[i].title}`;
     try{ const fresh=await fetchFullShow(targets[i].id, targets[i].watched);
-         Object.assign(targets[i], fresh); touch(targets[i]); save(); ok++; }
-    catch(e){ failed.push(targets[i].title); }
+         Object.assign(targets[i], fresh); clearSyncFail(targets[i]); touch(targets[i]); save(); ok++; }
+    catch(e){ noteSyncFail(targets[i],e); touch(targets[i]); failed.push(targets[i].title); }
     // TVmaze rate-limits. v43 fired these back to back, so a big library was
     // the case most likely to fail - and it still said "Sync complete."
     if(i<targets.length-1) await new Promise(r=>setTimeout(r,600));
@@ -665,6 +690,31 @@ async function syncAll(){
   syncing=false; $("statusLine").textContent=""; render();
   if(failed.length) toast(`Synced ${ok}. ${failed.length} failed: ${failed.slice(0,3).join(", ")}${failed.length>3?"…":""}`,7000);
   else toast(`Synced ${ok} show${ok===1?"":"s"}.`);
+}
+
+/* Who can be refreshed from TVmaze at all. One definition, used by the two
+   sync passes AND by the "air dates are old" warning - they used to disagree,
+   so the warning could name shows that were never going to be refreshed. */
+function syncable(s){ return !dropped(s) && !s.manual
+  && (s.inProduction || s.upcoming || s.tmdbStatus==="Returning Series"); }
+
+/* Why a show could not be refreshed, kept on the show itself.
+   lastSynced only moves when fetchFullShow SUCCEEDS, so a show that can never
+   succeed stays "stale" for ever and the warning never clears - which is the
+   whole reason it kept coming back. A hard failure will not fix itself, so it
+   stops counting as stale and gets named instead. */
+function noteSyncFail(sh, e){
+  const m=(e&&e.message)||"";
+  if(m==="DAILY")          sh.syncFail={at:Date.now(), hard:true,  why:"daily serial — over 150 episodes in one season"};
+  else if(/^HTTP4/.test(m))sh.syncFail={at:Date.now(), hard:true,  why:"TVmaze no longer lists this show"};
+  else if(/^HTTP/.test(m)) sh.syncFail={at:Date.now(), hard:false, why:"TVmaze returned an error ("+m.slice(4)+")"};
+  else                     sh.syncFail={at:Date.now(), hard:false, why:"no connection"};
+}
+function clearSyncFail(sh){ if(sh.syncFail) delete sh.syncFail; }
+function stuck(s){ return !!(s.syncFail && s.syncFail.hard); }
+function staleShows(){
+  return db.filter(s=>syncable(s) && !stuck(s)
+    && (!s.lastSynced || Date.now()-s.lastSynced > 3*864e5));
 }
 
 /* Every change to a mark stamps sh.wts / sh.dts, which is how a sync works out
@@ -742,7 +792,7 @@ function markBulkDownloaded(id, scope){
 function toastUndo(t, dlScope, dlId){
   const el=$("toast");
   el.innerHTML=esc(t)+' <button class="btn hot" id="undoBtn" style="margin-left:10px">Undo</button>'
-    +(dlScope? ' <button class="btn" id="dlBulkBtn" style="margin-left:6px;color:var(--cyan);border-color:rgba(95,212,208,.5)">\uD83D\uDCE5 Downloaded</button>':'');
+    +(dlScope? ' <button class="btn" id="dlBulkBtn" style="margin-left:6px;color:var(--cyan);border-color:rgba(95,212,208,.5)">'+ICON.dl+' Downloaded</button>':'');
   el.classList.remove("hidden"); clearTimeout(el._t);
   el._t=setTimeout(()=>{ el.classList.add("hidden"); el.textContent=""; undoState=null; },8000);
   if(dlScope){ document.getElementById("dlBulkBtn").onclick=()=>{
@@ -955,7 +1005,7 @@ function renderMovieDiscover(){
         : `<span style="width:42px;height:63px;border-radius:6px;background:#101120;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:var(--faint);flex-shrink:0">${esc((it.title||"?").slice(0,1).toUpperCase())}</span>`}
       <span style="flex:1;min-width:0"><b>${esc(it.title)}</b><br>
         <span class="mono" style="font-size:11px;color:var(--violet)">${fmtDate(it.date)}</span></span>
-      <a class="btn" style="text-decoration:none;flex-shrink:0" title="Where is it releasing?" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" release date India theatre OTT")}" target="_blank" rel="noopener">\uD83D\uDD0E</a>
+      <a class="btn" style="text-decoration:none;flex-shrink:0" title="Where is it releasing?" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" release date India theatre OTT")}" target="_blank" rel="noopener">${ICON.find}</a>
       <button class="btn hot" data-mdiscadd="${it.qid}" style="flex-shrink:0">+ Add</button></div>`;
   }
   if(mHidden) h+=`<div class="mono" style="font-size:10px;color:var(--faint);margin-top:10px">${mHidden} already in your movies list, hidden</div>`;
@@ -991,7 +1041,7 @@ function renderShowDiscover(){
           :`<div style="font-size:13px;color:var(--faint);margin-bottom:8px">No description on TVmaze yet.</div>`}
         <div class="mono" style="font-size:11px;color:var(--dim);margin-bottom:8px">${esc(d.epNote)}${d.runtime?` \u00b7 ${d.runtime} min`:""}${d.genres?` \u00b7 ${esc(d.genres)}`:""}${d.status?` \u00b7 ${esc(d.status)}`:""}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" series")}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
+          <a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${encodeURIComponent(it.title+" series")}" target="_blank" rel="noopener">${ICON.find} Google</a>
           <a class="btn" style="text-decoration:none" href="${d.imdb? "https://www.imdb.com/title/"+d.imdb+"/" : "https://www.imdb.com/find/?q="+encodeURIComponent(it.title)}" target="_blank" rel="noopener">IMDb</a>
         </div>`;
     }
@@ -1041,8 +1091,27 @@ function render(){
   }
   $("statsCard").innerHTML=statsCard;
 
-  const stale=db.some(s=>!dropped(s)&&(s.inProduction||s.upcoming)&&(!s.lastSynced||Date.now()-s.lastSynced>3*864e5));
-  if(!syncing&&!cloudBusy) $("statusLine").textContent = stale? "\u26A0 Air dates 3+ days old — hit Sync all to refresh.":"";
+  // Two different problems, and telling them apart is the point. Shows that
+  // are simply overdue can be fixed by tapping refresh. Shows TVmaze cannot
+  // give us are never going to refresh, so saying "hit Sync all" about them
+  // was advice that could not work - and it never stopped saying it.
+  const staleN=staleShows().length;
+  const stuckList=db.filter(s=>!dropped(s)&&stuck(s));
+  if(!syncing&&!cloudBusy){
+    const el=$("statusLine");
+    if(staleN) el.innerHTML=`\u26A0 ${staleN} show${staleN===1?"":"s"} not refreshed in 3+ days — tap \u27F3 above.`;
+    else if(stuckList.length) el.innerHTML=`<button id="stuckBtn" style="background:none;border:none;padding:0;font:inherit;color:var(--violet);cursor:pointer;text-align:left">${stuckList.length} show${stuckList.length===1?"":"s"} can't refresh from TVmaze — tap to see ${stuckOpen?"\u25B4":"\u25BE"}</button>`;
+    else el.textContent="";
+    const sb=$("stuckBtn"); if(sb) sb.onclick=()=>{ stuckOpen=!stuckOpen; render(); };
+  }
+  $("syncNote").innerHTML = (stuckOpen && stuckList.length)
+    ? `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0">
+        <div class="sect mono" style="margin:0 0 8px">CAN'T REFRESH</div>`
+      + stuckList.map(s=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line)">
+          <span class="ttl clip">${esc(s.title)}</span>
+          <span class="mono" style="font-size:10px;color:var(--faint);flex-shrink:0;text-align:right">${esc(s.syncFail.why)}</span></div>`).join("")
+      + `<div style="font-size:11px;color:var(--dim);margin-top:9px">Your watched episodes are safe — only new air dates are missing. Mark these by hand, or drop the show to stop it being counted.</div></div>`
+    : "";
 
   const nagDue = db.length>0 && !ghToken
     && Date.now()-(+store("signal.lastexport")||0) > 30*864e5
@@ -1143,7 +1212,7 @@ function renderShows(){
       upNext.forEach(({s,n}, idx)=>{
         const pr = dlPrompt && dlPrompt.id===s.id? dlPrompt : null;
         const line = pr? `S${pad(pr.s)}E${pad(pr.e)} watched — downloaded it?` : `S${pad(n.s)}E${pad(n.e)}${n.name? " · "+esc(n.name):""}${s.watchOn&&s.watchOn[0]? " · "+esc(s.watchOn[0]):""}`;
-        const btn = pr? `<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-dlnext="${s.id}:${pr.s}:${pr.e}">\uD83D\uDCE5 Mark downloaded</button>` : `<button class="btn hot" data-next="${s.id}">Mark watched</button>`;
+        const btn = pr? `<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.5)" data-dlnext="${s.id}:${pr.s}:${pr.e}">${ICON.dl} Mark downloaded</button>` : `<button class="btn hot" data-next="${s.id}">Mark watched</button>`;
         // The first one is the answer to "what do I put on now", so it gets the
         // poster and room to breathe. The rest stay one line each.
         if(idx===0){
@@ -1186,7 +1255,7 @@ function renderShows(){
     const mvPend=movies.filter(m=>m.dlWant&&!m.dl);
     if(dlPend.length||mvPend.length){
       const totalPend=dlPend.reduce((a,x)=>a+x.n,0)+mvPend.length;
-      h+=`<div style="margin:0 0 14px"><button class="btn" data-dlexp="1">\uD83D\uDCE5 Pending downloads (${totalPend}) ${dlOpen?"\u25B4":"\u25BE"}</button></div>`;
+      h+=`<div style="margin:0 0 14px"><button class="btn" data-dlexp="1">${ICON.dl} Pending downloads (${totalPend}) ${dlOpen?"\u25B4":"\u25BE"}</button></div>`;
       if(dlOpen){
         h+=`<section style="margin:-6px 0 22px">`;
         for(const {sh,n} of dlPend){
@@ -1202,7 +1271,7 @@ function renderShows(){
               <div style="min-width:0;font-weight:700;font-size:14px">${esc(sh.title)} ${sh.watchOn&&sh.watchOn[0]?`<span class="chip" style="margin-left:6px">${esc(sh.watchOn[0])}</span>`:""}</div>
               <button class="btn" style="flex-shrink:0" data-dlall="${sh.id}">All \u2713</button>
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px">`;
+            <div style="display:flex;flex-wrap:wrap;gap:8px">`;
           for(const pe of vis) h+=`<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.4);font-size:11px;padding:4px 8px" data-dlep="${sh.id}:${pe.s}:${pe.e}">S${pad(pe.s)}E${pad(pe.e)}</button>`;
           if(pend.length>CAP) h+=`<button class="btn" style="font-size:11px;padding:4px 8px" data-dlmore="${sh.id}">${showAll? "show less":"+"+(pend.length-CAP)+" more"}</button>`;
           h+=`</div></div>`;
@@ -1210,7 +1279,7 @@ function renderShows(){
         if(mvPend.length){
           h+=`<div style="border-bottom:1px solid var(--line);padding:10px 2px">
             <div style="font-weight:700;font-size:14px;margin-bottom:7px">Movies</div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px">`;
+            <div style="display:flex;flex-wrap:wrap;gap:8px">`;
           for(const m of mvPend) h+=`<button class="btn" style="color:var(--cyan);border-color:rgba(95,212,208,.4);font-size:11px;padding:4px 8px" data-mvpend="${m.id}">${esc(m.title.slice(0,24))}</button>`;
           h+=`</div></div>`;
         }
@@ -1327,7 +1396,7 @@ function renderShows(){
         const complete2 = airedTotal(sh)>0 && wCount(sh)>=airedTotal(sh);
         if(!complete2) h+=`<button class="btn" data-catchup="${sh.id}">I'm caught up</button>`;
         if(!sh.manual) h+=`<button class="btn" data-unlock="${sh.id}" title="Use only if air dates are wrong">${sh.unlockAll?"Re-lock unaired":"Data wrong? Unlock"}</button>`;
-        h+=`<button class="btn" data-dltrack="${sh.id}">\uD83D\uDCE5 Download reminders: ${dlOn(sh)?"on":"off"}</button>`;
+        h+=`<button class="btn" data-dltrack="${sh.id}">${ICON.dl} Download reminders: ${dlOn(sh)?"on":"off"}</button>`;
         const cat3=catOf(sh);
         if(dropped(sh)) h+=`<button class="btn" data-bucket="${sh.id}:resume">Resume watching</button>`;
         else {
@@ -1341,9 +1410,9 @@ function renderShows(){
         : `<button class="btn warn" data-del="${sh.id}">Remove</button>`;
       const gq=encodeURIComponent(sh.title+" next episode");
       const imdbUrl= sh.imdb? "https://www.imdb.com/title/"+sh.imdb+"/" : "https://www.imdb.com/find/?q="+encodeURIComponent(sh.title);
-      h+=`<a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener">\uD83D\uDD0E Google</a>
+      h+=`<a class="btn" style="text-decoration:none" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener">${ICON.find} Google</a>
         <a class="btn" style="text-decoration:none" href="${imdbUrl}" target="_blank" rel="noopener">IMDb</a>
-        <span class="mono" style="font-size:10px;color:var(--faint);margin-left:auto">synced ${agoLabel(sh.lastSynced)}</span></div>`;
+        <span class="mono" style="font-size:10px;color:${sh.syncFail?"var(--violet)":"var(--faint)"};margin-left:auto">${sh.syncFail? esc(sh.syncFail.why) : "synced "+agoLabel(sh.lastSynced)}</span></div>`;
       if(dlOn(sh)&&!isUp(sh)){
         const mm=markMode[sh.id]||"watch";
         h+=`<div style="display:flex;gap:8px;align-items:center;margin:8px 0 2px">
@@ -1379,7 +1448,7 @@ function renderShows(){
             </div>`;
           const nextIn=seas.eps.find(ep=>aired(sh,ep)&&!sh.watched[epK(seas.season,ep.e)]);
           if(nextIn&&nextIn.name) h+=`<div class="mono" style="font-size:11px;color:var(--cyan);margin:0 0 6px">Next: E${pad(nextIn.e)} · ${esc(nextIn.name)}</div>`;
-          h+=`<div style="display:flex;flex-wrap:wrap;gap:6px">`;
+          h+=`<div style="display:flex;flex-wrap:wrap;gap:8px">`;
           for(const ep of seas.eps){
             const on=!!sh.watched[epK(seas.season,ep.e)], ok=aired(sh,ep);
             const dl=dlOn(sh)&&sh.dl&&sh.dl[epK(seas.season,ep.e)];
@@ -1630,7 +1699,7 @@ function renderMovies(){
     const rel=m.releaseDate? (daysAway(m.releaseDate)>0? fmtDate(m.releaseDate): (m.year||m.releaseDate.slice(0,4))): (m.year||"");
     let primary;
     if(!m.watched) primary=`<button class="btn hot" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Mark watched</button>`;
-    else if(m.dlWant&&!m.dl) primary=`<button class="btn" style="font-size:11px;padding:4px 8px;color:var(--cyan);border-color:rgba(95,212,208,.5)" data-mvdlgo="${m.id}">\uD83D\uDCE5 Mark downloaded</button><button class="btn" style="font-size:11px;padding:4px 7px" title="No download reminder for this one" data-mvskip="${m.id}">\u2715</button>`;
+    else if(m.dlWant&&!m.dl) primary=`<button class="btn" style="font-size:11px;padding:4px 8px;color:var(--cyan);border-color:rgba(95,212,208,.5)" data-mvdlgo="${m.id}">${ICON.dl} Mark downloaded</button><button class="btn" style="font-size:11px;padding:4px 7px" title="No download reminder for this one" data-mvskip="${m.id}">\u2715</button>`;
     else primary=`<button class="btn" style="font-size:11px;padding:4px 8px" data-mvw="${m.id}">Unwatch</button>`;
     const mOpen = movOpenId===m.id;
     h+=`<div style="border-bottom:1px solid var(--line)">
@@ -2046,7 +2115,7 @@ document.addEventListener("visibilitychange",()=>{
   await pullCloud(true);
   if(!navigator.onLine) return;
   const STALE = 12*3600*1000;
-  const targets = db.filter(s=>!dropped(s)&&!s.manual&&(s.inProduction||s.upcoming||s.tmdbStatus==="Returning Series")
+  const targets = db.filter(s=>syncable(s) && !stuck(s)
                             && (!s.lastSynced || Date.now()-s.lastSynced>STALE));
   if(!targets.length) return;
   syncing=true;
@@ -2054,9 +2123,9 @@ document.addEventListener("visibilitychange",()=>{
   for(let i=0;i<targets.length;i++){
     try{
       const fresh=await fetchFullShow(targets[i].id, targets[i].watched);
-      Object.assign(targets[i], fresh); touch(targets[i]); save();
+      Object.assign(targets[i], fresh); clearSyncFail(targets[i]); touch(targets[i]); save();
       $("statusLine").textContent=`Updating ${i+1}/${targets.length}…`;
-    }catch(e){}
+    }catch(e){ noteSyncFail(targets[i],e); touch(targets[i]); }
     await new Promise(r=>setTimeout(r,600));
   }
   syncing=false; $("statusLine").textContent=""; render();

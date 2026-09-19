@@ -9,7 +9,7 @@
  * CACHE_NAME must match APP_VERSION in index.html. Bump the two together:
  * the version name is how an old cache gets cleared out on activate.
  */
-const CACHE_NAME = "signal-v44";
+const CACHE_NAME = "signal-v45";
 
 /* Every file the app is made of. All four of them - if that ever stops being
    true, this list is what breaks first. */
