@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Signal tests</title>
+<style>
+  body { margin:0; padding:24px 16px 48px; background:#0E0F16; color:#EDEDF2; font:15px/1.5 system-ui,sans-serif; }
+  main { max-width:760px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  #sum { margin:0 0 20px; color:#B4B6C9; }
+  #sum.bad { color:#EE7777; }
+  li { list-style:none; padding:8px 0; border-bottom:1px solid #2B2E44; display:grid; grid-template-columns:56px 1fr; gap:8px; }
+  ul { padding:0; margin:0; }
+  .p { color:#5FD4D0; font-weight:600; } .f { color:#EE7777; font-weight:600; }
+  .e { grid-column:2; color:#EE7777; font-family:ui-monospace,monospace; font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Signal tests</h1>
+  <p id="sum">Running</p>
+  <ul id="out"></ul>
+</main>
+<!-- Pure logic only: no library, no network, no data of yours is touched. -->
+<script src="i18n.js"></script>
+<script src="core.js"></script>
+<script src="tests.js"></script>
+<script>
+  const env = {
+    text: async (f) => { const r = await fetch(f, { cache: "no-store" }); if (!r.ok) throw new Error(f + " " + r.status); return r.text(); },
+    exists: async (f) => (await fetch(f, { cache: "no-store" })).ok,
+  };
+  runAll(env).then((res) => {
+    window.testResults = res;
+    const bad = res.filter((r) => !r.ok).length;
+    const sum = document.getElementById("sum");
+    sum.textContent = (res.length - bad) + " passed, " + bad + " failed, " + res.length + " total";
+    if (bad) sum.className = "bad";
+    document.getElementById("out").innerHTML = res.map((r) => "<li><span class='" + (r.ok ? "p'>pass" : "f'>FAIL") + "</span><span>" +
+      r.name.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>" + (r.ok ? "" : "<span class='e'>" + String(r.error).replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>") + "</li>").join("");
+  });
+</script>
+</body>
+</html>

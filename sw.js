@@ -6,19 +6,28 @@
  * enough to read them. Your watch history was sitting in the browser the whole
  * time, unreachable.
  *
- * CACHE_NAME must match APP_VERSION in index.html. Bump the two together:
- * the version name is how an old cache gets cleared out on activate.
+ * CACHE_NAME must match BUILD in core.js. Bump the two together: the build
+ * number in the name is how an old cache gets cleared out on activate.
  */
-const CACHE_NAME = "signal-v45";
+const CACHE_NAME = "signal-v47";
 
-/* Every file the app is made of. All four of them - if that ever stops being
-   true, this list is what breaks first. */
+/* Every file the app is made of. If one is missing here the app still opens
+   online but not offline; if one is listed that does not exist, addAll()
+   rejects and NOTHING is cached, silently. tests.html checks both. */
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./style.css",
+  "./i18n.js",
+  "./core.js",
+  "./data.js",
+  "./ui.js",
+  "./app.js",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
+  "./fonts/DMSans-latin.woff2",
+  "./fonts/DMSans-latin-ext.woff2",
 ];
 
 self.addEventListener("install", (e) => {
