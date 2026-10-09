@@ -206,7 +206,7 @@ async function ttRunModal(sel) {
     <div class="btns"><button class="btn danger" data-mact="stop">${t("stop_here")}</button></div>`));
   modalCtl = { onAction(v) { if (v === "done") { dismissModal(); render(); } } };
   setModal(`<h2 id="dlgTitle">${t(res.stopped ? "tt_stopped" : "tt_complete")}</h2><p class="help">${t("tt_summary", { a: res.added, m: res.merged, s: res.skipped.length })}</p>
-    ${res.skipped.length ? `<div class="pick">${res.skipped.map((x) => `<label style="min-height:0"><span class="grow">${esc(x.n)}</span><span class="n" style="white-space:normal;text-align:end">${esc(t("skip_" + x.code, { n: x.count }))}</span></label>`).join("")}</div>` : ""}
+    ${res.skipped.length ? `<div class="pick">${res.skipped.map((x) => `<label class="tight"><span class="grow">${esc(x.n)}</span><span class="n wrap">${esc(t("skip_" + x.code, { n: x.count }))}</span></label>`).join("")}</div>` : ""}
     <div class="btns"><button class="btn primary" data-mact="done">${t("done")}</button></div>`);
   const b = document.querySelector('[data-mact="done"]'); if (b) b.focus();
 }

@@ -9,7 +9,7 @@
  * CACHE_NAME must match BUILD in core.js. Bump the two together: the build
  * number in the name is how an old cache gets cleared out on activate.
  */
-const CACHE_NAME = "signal-v48";
+const CACHE_NAME = "signal-v49";
 
 /* Every file the app is made of. If one is missing here the app still opens
    online but not offline; if one is listed that does not exist, addAll()

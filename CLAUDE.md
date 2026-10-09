@@ -122,12 +122,22 @@ language can be added without redoing the layout. None is shipped yet.
 
 ## Design
 
-**Direction (3.0).** A dark, poster-led tracker. Dark because posters read best on
-a near-black ground and most viewing is in a dim room. Dials: ENERGY 2 / RHYTHM 3
-/ MOTION 2 - screens differ on purpose (a rail of posters on Today, a grid in
-Shows, a backdrop and episode rows on a show, rows with a thumbnail for movies).
-The identity motif is the app icon itself, a filled square in a rounded square:
+**Direction (3.1).** A quiet, dense index of what you are watching. The interface is
+near-neutral graphite so the posters carry the colour; it is made of hairlines and
+small type, not cards and big buttons. 3.0 looked like a template because it was
+sized like one (15px type, 40-44px controls, 12-20px corners, four accent colours);
+3.1 is a size and restraint fix first and a palette change second. Dials: ENERGY 2 /
+RHYTHM 3 / MOTION 2, density high - screens differ on purpose (a rail of posters on
+Today, a grid in Shows, a backdrop and episode rows on a show, rows with a thumbnail
+for movies). The identity motif is the app icon, a filled square in a rounded square:
 every status marker is a small rounded square, never a circle.
+
+Scale: 14px body, 12-13px for secondary text, 11px for chips and tab labels. Controls
+are 28px (small), 34px (default), 36px (icon button); top bar 48px, tab bar 52px.
+Corners 4px (chips, thumbs), 6-8px (buttons, cards, posters), 12px (panels). Rows are
+separated by hairlines (`--hair`), not by cards or hover boxes. A figure that is
+only a figure (73 episodes to watch) is a line of text, not a card. On a phone a
+row's action is an icon button (`.btn.ic` with a `.lbl` kept for screen readers).
 
 Typeface: DM Sans, shipped in `fonts/`, weights 400-600 only (that is all the
 file has). Open and geometric, easy to read small on dark, covers Latin Extended.
@@ -135,9 +145,11 @@ Other scripts fall through to the phone's own UI font. No webfont is fetched.
 
 Amber is the one deliberate accent. **The solid amber button is for the one main
 action on a screen** (top-bar Add, a show's "Mark watched", onboarding). Every
-repeated action (each card, each row, each Add in a list) uses `.btn.soft`.
-Cyan = the app telling you something, violet = a date in the future, red =
-careful. Do not add a fifth colour.
+repeated action (each card, each row) uses `.btn.soft`, a selected chip is a tinted
+outline, and a rating or "watched" tag is `.chip.tint`. `--cyan` (muted) is only for
+"downloaded" and for links; red is for what cannot be undone. Violet is gone: a
+future date is plain dim text. Episode codes are dim, not coloured. Do not add a
+colour.
 
 Every colour is a token in the `:root` block of `style.css`; nothing outside it
 writes a raw colour (hover steps, inks, scrims and shadows are tokens too, and
@@ -145,11 +157,12 @@ shadows are tinted with the page colour).
 
 Three text tiers - `--text`, `--dim`, `--faint` - and **every one clears WCAG AA
 (4.5:1) on all five surfaces** it can land on: `--well`, `--bg`, `--card`,
-`--cardup` and the toast. Measured in 3.0: the lowest is `--faint` on the toast at
-4.83. A dark theme makes it easy to add a quieter grey that fails; don't. Measure
-any new colour against all five first. Soft-button text, button inks and text over
-the blurred poster backdrop (worst case a pure white poster) were measured too.
-Disabled controls are exempt.
+`--cardup` and `--cardhi` (the toast). Measured in 3.1: the lowest is `--faint` on
+`--cardhi` at 5.08. Every accent and the red clear 5.2 on all five. The edge of an
+input is `--edge`, 3:1 on the surfaces it sits on. A dark theme makes it easy to add
+a quieter grey that fails; don't. Measure any new colour against all five first.
+Soft-button text, button inks and text over the blurred poster backdrop (worst case
+a pure white poster) were measured too. Disabled controls are exempt.
 
 Tap targets are at least 24x24 CSS px with 8px between them (the WCAG 2.2 AA web
 figure; 44pt/48dp is iOS and Android native and does not apply). Inputs are 16px
@@ -157,8 +170,9 @@ so iOS does not zoom.
 
 No emoji as icons, ever. Icons are inline SVG in the `ICONS` map (`ui.js`), 1.7
 stroke, `currentColor`, `aria-hidden`. No em dashes in any text a person reads
-(app name included). Few inline styles: spacing and alignment are classes
-(`.mt-12`, `.grow`); only a dynamic width or a backdrop image stays inline.
+(app name included). No inline styles except a dynamic width (a progress bar) or a backdrop image:
+spacing, size and alignment are classes, because an inline size is how an old, larger
+scale survives a redesign.
 
 Numbers first, one short line per item, details behind a tap. A warning is said
 once, one banner at a time. Comments explain why, in plain English.

@@ -236,8 +236,8 @@ function filmRowHTML(m) {
   const future = m.releaseDate && daysAway(m.releaseDate) > 0;
   const when = m.releaseDate ? (future ? fmtDate(m.releaseDate) : String(m.year || m.releaseDate.slice(0, 4))) : (m.manual ? t("date_tba") : String(m.year || ""));
   let primary;
-  if (!m.watched) primary = `<button class="btn soft sm" data-mvw="${esc(m.id)}">${ico("check", "sm")}${t("mv_mark_watched")}</button>`;
-  else if (m.dlWant && !m.dl) primary = `<button class="btn cyan sm" data-mvdlgo="${esc(m.id)}">${ico("download", "sm")}${t("btn_mark_downloaded")}</button>`;
+  if (!m.watched) primary = `<button class="btn soft sm ic" data-mvw="${esc(m.id)}">${ico("check", "sm")}<span class="lbl">${t("mv_mark_watched")}</span></button>`;
+  else if (m.dlWant && !m.dl) primary = `<button class="btn cyan sm ic" data-mvdlgo="${esc(m.id)}">${ico("download", "sm")}<span class="lbl">${t("btn_mark_downloaded")}</span></button>`;
   else primary = `<button class="btn sm" data-mvw="${esc(m.id)}">${t("mv_unwatch")}</button>`;
   return `<div class="lrow"><button class="main" data-film="${esc(m.id)}">${thumbHTML(m.poster, m.title)}
     <span class="mid"><b class="clip">${esc(m.title)}</b><span class="sub clip">${esc(when)}${m.runtime ? " · " + t("mv_runtime", { n: m.runtime }) : ""}${m.watched && m.watchedAt ? " · " + t("mv_watched_on", { date: m.watchedAt.slice(0, 10) }) : ""}</span></span>
@@ -283,7 +283,7 @@ function discoverShowsHTML() {
     return `<div class="empty mt-20"><h3>${t("disc_pick")}</h3><p>${t("disc_pick_body")}</p><button class="btn primary" data-opensettings="services">${t("disc_pick_btn")}</button></div>`;
   const names = myPlatforms.map((id) => (PLATFORMS.find((p) => p.id === id) || {}).label).filter(Boolean).join(", ");
   let h = `<div class="sec"><h2>${t("disc_title_shows")}</h2><button class="icon-btn" data-discrefresh="1" aria-label="${t("refresh")}" aria-busy="${discLoading}">${ico("sync")}</button></div>
-    <p class="help mb-10">${t("disc_on", { list: esc(names) })} <button class="more" style="display:inline;padding:0" data-opensettings="services">${t("disc_change")}</button></p>`;
+    <p class="help mb-10">${t("disc_on", { list: esc(names) })} <button class="lnk" data-opensettings="services">${t("disc_change")}</button></p>`;
   if (discLoading) return h + `<div class="status">${t("disc_loading")}</div><div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
   if (discError && !discCache) return h + `<div class="status err">${t("disc_err")}</div><button class="btn" data-discrefresh="1">${t("retry")}</button>`;
   const all = (discCache && discCache.items) || [];
@@ -294,7 +294,7 @@ function discoverShowsHTML() {
   const langList = Object.entries(langs).sort((a, b) => b[1] - a[1]);
   if (discLang !== "all" && !langs[discLang]) discLang = "all";
   if (langList.length > 1) h += `<div class="langs" data-sk="langs" role="group" aria-label="${t("disc_lang")}"><button data-disclang="all" aria-pressed="${discLang === "all"}">${t("lang_all")}</button>${langList.map(([l, n]) =>
-    `<button data-disclang="${esc(l)}" aria-pressed="${discLang === l}">${esc(langName(l))} <span class="mono faint">${n}</span></button>`).join("")}</div><div style="height:10px"></div>`;
+    `<button data-disclang="${esc(l)}" aria-pressed="${discLang === l}">${esc(langName(l))} <span class="mono faint">${n}</span></button>`).join("")}</div>`;
   const items = mine.filter((it) => discLang === "all" || it.lang === discLang);
   if (!mine.length) h += `<div class="empty"><p>${t("disc_all_in")}</p></div>`;
   for (const it of items) {
@@ -304,7 +304,7 @@ function discoverShowsHTML() {
       if (!inf || inf.loading) more = `<p>${t("info_loading")}</p>`;
       else if (inf.error) more = `<p class="c-red">${t("info_error")}</p>`;
       else more = `${inf.summary ? `<p>${esc(inf.summary)}</p>` : ""}
-        <p class="mono" style="font-size:12px">${esc(inf.epCount ? t("disc_ep_count", { s: it.season, n: inf.epCount }) : t("disc_ep_none", { s: it.season }))}${inf.runtime ? " · " + t("mv_runtime", { n: inf.runtime }) : ""}${inf.genres.length ? " · " + esc(inf.genres.join(", ")) : ""}</p>
+        <p class="mono help">${esc(inf.epCount ? t("disc_ep_count", { s: it.season, n: inf.epCount }) : t("disc_ep_none", { s: it.season }))}${inf.runtime ? " · " + t("mv_runtime", { n: inf.runtime }) : ""}${inf.genres.length ? " · " + esc(inf.genres.join(", ")) : ""}</p>
         <div class="links"><a class="btn sm" href="https://www.google.com/search?q=${encodeURIComponent(it.title + " series")}" target="_blank" rel="noopener">${ico("link", "sm")}${t("m_google")}</a>
         <a class="btn sm" href="${inf.imdb ? "https://www.imdb.com/title/" + inf.imdb + "/" : "https://www.imdb.com/find/?q=" + encodeURIComponent(it.title)}" target="_blank" rel="noopener">${ico("link", "sm")}IMDb</a></div>`;
     }
@@ -325,9 +325,9 @@ function discoverMoviesHTML() {
   if (!all.length && !mdiscLoading && !mdiscError) return h + `<div class="empty"><p>${t("mdisc_empty")}</p></div>`;
   if (all.length && !items.length) h += `<div class="empty"><p>${t("mdisc_all_in")}</p></div>`;
   for (const it of items) {
-    h += `<div class="dcard"><div class="top"><div style="display:flex;gap:12px;flex:1;min-width:0">${thumbHTML(it.poster, it.title)}
-      <span class="mid" style="display:grid;gap:6px;align-content:start;min-width:0"><b style="font-size:15px;font-weight:600">${esc(it.title)}</b><span class="code c-violet">${esc(fmtDate(it.date))}</span>
-      <a class="btn sm ghost" style="justify-self:start;padding:0" href="https://www.google.com/search?q=${encodeURIComponent(it.title + " release date where to watch")}" target="_blank" rel="noopener">${ico("link", "sm")}${t("mdisc_where")}</a></span></div>
+    h += `<div class="dcard"><div class="top"><div class="open">${thumbHTML(it.poster, it.title)}
+      <span class="mid"><b>${esc(it.title)}</b><span class="code c-violet">${esc(fmtDate(it.date))}</span>
+      <a class="btn sm ghost flush" href="https://www.google.com/search?q=${encodeURIComponent(it.title + " release date where to watch")}" target="_blank" rel="noopener">${ico("link", "sm")}${t("mdisc_where")}</a></span></div>
       <button class="btn soft sm go" data-mdiscadd="${esc(it.qid)}">${t("add_btn")}</button></div></div>`;
   }
   return h + (mdiscCache ? `<p class="help mt-12">${t("mdisc_note", { ago: agoLabel(mdiscCache.ts) })}</p>` : "");
@@ -369,7 +369,7 @@ function sheetShow(sh) {
   }
   if (inf && !inf.loading && !inf.error) {
     if (inf.summary) h += `<p class="about${aboutOpen[sh.id] ? "" : " clamp"}">${esc(inf.summary)}</p>${inf.summary.length > 180 ? `<button class="about-more" data-aboutmore="${sh.id}">${t(aboutOpen[sh.id] ? "less" : "d_about_more")}</button>` : ""}`;
-    const g = inf.genres.map((x) => `<span class="chip">${esc(x)}</span>`).join("") + (inf.rating ? `<span class="chip amber">${t("info_rating", { n: inf.rating })}</span>` : "");
+    const g = inf.genres.map((x) => `<span class="chip">${esc(x)}</span>`).join("") + (inf.rating ? `<span class="chip tint">${t("info_rating", { n: inf.rating })}</span>` : "");
     if (g) h += `<div class="chips mt-12">${g}</div>`;
   } else if (inf && inf.loading) h += `<p class="help mt-14">${t("info_loading")}</p>`;
   if (!up) {
@@ -382,7 +382,7 @@ function sheetShow(sh) {
       const ai = seas.eps.filter((ep) => aired(sh, ep)).length, modeDl = dlOn(sh) && markMode[sh.id] === "dl";
       const allOn = modeDl ? seas.eps.some((ep) => sh.watched[epK(cs, ep.e)]) && seas.eps.every((ep) => !sh.watched[epK(cs, ep.e)] || (sh.dl && sh.dl[epK(cs, ep.e)]))
                            : ai > 0 && seas.eps.every((ep) => !aired(sh, ep) || sh.watched[epK(cs, ep.e)]);
-      h += `<div class="seasonbar"><h2 style="font-size:17px;font-weight:600">${t("d_season", { n: cs })}</h2>
+      h += `<div class="seasonbar"><h2>${t("d_season", { n: cs })}</h2>
         <button class="btn sm" data-season="${sh.id}:${cs}:${allOn ? 0 : 1}" ${ai ? "" : "disabled"}>${t(modeDl ? (allOn ? "d_clear_dl" : "d_mark_dl") : (allOn ? "d_clear_season" : "d_mark_season"))}</button></div>`;
       if (dlOn(sh)) h += `<div class="seg mb-8" role="group" aria-label="${t("mode_label")}"><button data-mm="${sh.id}:watch" aria-pressed="${!modeDl}">${t("mode_watched")}</button><button data-mm="${sh.id}:dl" aria-pressed="${modeDl}">${t("mode_dl")}</button></div>`;
       h += `<div class="eps">${seas.eps.map((ep) => {
@@ -411,7 +411,7 @@ function sheetShow(sh) {
       ${dropped(sh) ? `<button data-bucket="${sh.id}:resume">${t("m_resume")}</button>` : `${cat === "waiting" ? `<button data-bucket="${sh.id}:done">${t("m_to_done")}</button>` : cat === "done" ? `<button data-bucket="${sh.id}:active">${t("m_to_active")}</button>` : ""}<button data-bucket="${sh.id}:dropped">${t("m_drop")}</button>`}
       <a href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener"><span>${t("m_google")}</span>${ico("link", "sm")}</a>
       <a href="${imdbUrl}" target="_blank" rel="noopener"><span>${t("m_imdb")}</span>${ico("link", "sm")}</a>
-      ${confirmDel === sh.id ? `<div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px"><span class="danger" style="flex:1;min-width:100%">${esc(t("m_remove_q", { title: sh.title }))}</span><button class="btn danger sm" data-delyes="${sh.id}">${t("yes_remove")}</button><button class="btn sm" data-delno="1">${t("keep_it")}</button></div>`
+      ${confirmDel === sh.id ? `<div class="confirm"><span class="danger">${esc(t("m_remove_q", { title: sh.title }))}</span><button class="btn danger sm" data-delyes="${sh.id}">${t("yes_remove")}</button><button class="btn sm" data-delno="1">${t("keep_it")}</button></div>`
         : `<button class="danger" data-del="${sh.id}">${t("m_remove")}</button>`}</div>`;
   }
   h += `</div><p class="help mt-16 center">${sh.syncFail ? esc(failWhy(sh.syncFail)) : t("d_synced", { ago: agoLabel(sh.lastSynced) })}</p></div>`;
@@ -425,7 +425,7 @@ function sheetMovie(m) {
   if (m.releaseDate) chips.push(`<span class="chip ${future ? "violet" : ""}">${esc(future ? fmtDate(m.releaseDate) : (m.year || m.releaseDate.slice(0, 4)))}</span>`);
   if (m.runtime) chips.push(`<span class="chip">${t("mv_runtime", { n: m.runtime })}</span>`);
   if (m.manual) chips.push(`<span class="chip">${t("st_manual")}</span>`);
-  if (m.watched) chips.push(`<span class="chip amber">${t("mv_watched")}</span>`);
+  if (m.watched) chips.push(`<span class="chip tint">${t("mv_watched")}</span>`);
   if (m.dl) chips.push(`<span class="chip cyan">${t("mv_dl_done")}</span>`);
   let primary;
   if (!m.watched) primary = `<button class="btn primary" data-mvw="${esc(m.id)}">${ico("check", "sm")}${t("mv_mark_watched")}</button>`;
@@ -437,8 +437,8 @@ function sheetMovie(m) {
     <div class="pbody"><div class="actions">${primary}${m.watched && m.dlWant && !m.dl ? `<button class="btn" data-mvw="${esc(m.id)}">${t("mv_unwatch")}</button>` : ""}</div>
     ${m.watched && m.watchedAt ? `<p class="help mt-10">${t("mv_watched_on", { date: m.watchedAt.slice(0, 10) })}</p>` : ""}
     <div class="group"><h3>${t("mv_details")}</h3><div class="card"><div class="kv">
-      <div class="r"><label for="mvd">${t("mv_release")}</label><div style="display:flex;gap:8px"><input type="date" id="mvd" class="field" value="${esc(m.releaseDate || "")}"><button class="btn sm" data-mvdate="${esc(m.id)}">${t("save")}</button></div></div>
-      ${m.manual ? `<div class="r"><label for="mvt">${t("mv_title")}</label><div style="display:flex;gap:8px"><input id="mvt" class="field" value="${esc(m.title)}" style="width:min(260px,52vw)"><button class="btn sm" data-mvtitle="${esc(m.id)}">${t("save")}</button></div></div>` : ""}
+      <div class="r"><label for="mvd">${t("mv_release")}</label><div class="inline"><input type="date" id="mvd" class="field" value="${esc(m.releaseDate || "")}"><button class="btn sm" data-mvdate="${esc(m.id)}">${t("save")}</button></div></div>
+      ${m.manual ? `<div class="r"><label for="mvt">${t("mv_title")}</label><div class="inline"><input id="mvt" class="field w-title" value="${esc(m.title)}"><button class="btn sm" data-mvtitle="${esc(m.id)}">${t("save")}</button></div></div>` : ""}
       </div><div class="btns">${isWdMovie(m.id) ? `<button class="btn sm" data-mvref="${esc(m.id)}">${ico("sync", "sm")}${t("mv_refresh")}</button>` : ""}
       ${m.dlWant ? `<button class="btn sm" data-mvskip="${esc(m.id)}">${t("mv_skip_dl")}</button>` : ""}
       <a class="btn sm" href="https://www.google.com/search?q=${encodeURIComponent(m.title + " where to watch")}" target="_blank" rel="noopener">${ico("link", "sm")}${t("mdisc_where")}</a></div></div></div>
@@ -468,7 +468,7 @@ function sheetAdd() {
           ${inLib ? `<span class="chip">${t("add_in_lib")}</span>` : `<span class="btn soft sm" aria-hidden="true">${t("add_btn")}</span>`}</button>`;
       }
       const inLib = movies.some((m) => m.id === "mv-" + r.id);
-      return `<button class="rcard" ${inLib ? `data-film="mv-${esc(r.id)}"` : `data-addmovie="${esc(r.id)}"`} style="min-height:72px"><span class="mid"><b>${esc(r.label)}</b><span class="sub">${esc(r.description || "")}</span></span>
+      return `<button class="rcard" ${inLib ? `data-film="mv-${esc(r.id)}"` : `data-addmovie="${esc(r.id)}"`} ><span class="mid"><b>${esc(r.label)}</b><span class="sub">${esc(r.description || "")}</span></span>
         ${inLib ? `<span class="chip">${t("add_in_lib")}</span>` : `<span class="btn soft sm" aria-hidden="true">${t("add_btn")}</span>`}</button>`;
     }).join("");
   }
