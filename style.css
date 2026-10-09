@@ -259,6 +259,9 @@ button.stat { cursor:pointer; }
 
 /* ---------- sheets: show, film, add, settings ---------- */
 #sheet { position:fixed; inset:0; z-index:60; }
+/* Closed, it is empty but still a full-screen box, and a box catches taps: with no panel
+   open it sat over the tab bar and every button, and nothing could be pressed. */
+#sheet:empty { display:none; }
 .scrim { position:absolute; inset:0; background:var(--scrim); animation:fade .2s ease-out both; }
 .panel { position:absolute; inset:0; overflow-y:auto; overscroll-behavior:contain; background:var(--bg);
   animation:rise .24s var(--ease) both; }

@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "3.0";
-const BUILD = 47;
+const APP_VERSION = "3.0.1";
+const BUILD = 48;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");

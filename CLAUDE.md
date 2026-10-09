@@ -177,7 +177,12 @@ There is no git on the owner's machine. Node is at `C:\Program Files\nodejs`
    `tests.js` in one `vm` context and call `runAll`). They never touch a real
    library. Anything that touches marks, sync or time gets a test, and a new test
    should be shown to fail first (change the code, watch it catch it).
-3. Test with a throwaway browser profile, never the owner's real data. Anything
+3. Before any release, tap the app with real pointer clicks at phone size (the browser
+   pane's coordinate click, not `el.click()` or `setTab()`, which skip hit-testing) and
+   sweep `document.elementFromPoint` over every button on every tab. 3.0 shipped with an
+   empty full-screen `#sheet` over the tab bar because every earlier check went round the
+   hit-test. Also run it against a real backup after a reload, not a fresh profile.
+   Test with a throwaway browser profile, never the owner's real data. Anything
    that touches marks or sync is checked against a copy of a real backup first.
 4. Versions on screen read like an app's: `3.0`, `3.1` for features, `3.1.1` for a
    fix, `4.0` for a rebuild (`APP_VERSION` in core.js). Every release also raises

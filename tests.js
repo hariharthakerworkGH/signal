@@ -179,6 +179,18 @@ test("offline: every script, stylesheet and font the page loads is in the cache 
   eq([...new Set(need)].filter((f) => !inList.has(f)), []);
 });
 
+/* ---------- taps ---------- */
+// 3.0 shipped with the empty #sheet, a full-screen fixed box, over the tab bar: nothing could be tapped.
+test("taps: a full-screen container that starts empty is hidden while it is empty", async (env) => {
+  const css = await env.text("style.css"), html = await env.text("index.html");
+  const full = [...css.matchAll(/(^|\n)(#[\w-]+)\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/g)].map((m) => m[2]);
+  yes(full.length > 0, "no full-screen container found: this check needs updating");
+  for (const id of full) {
+    if (!new RegExp('id="' + id.slice(1) + '"(?![^>]*hidden)[^>]*>\\s*</div>').test(html)) continue;   // starts with content, or hidden (a global [hidden] rule covers it)
+    yes(new RegExp(id + "(:empty|\\[hidden\\])\\s*\\{[^}]*display:\\s*none").test(css), id + " covers the screen even when closed");
+  }
+});
+
 async function runAll(env) {
   const out = [];
   for (const tc of TESTS) {
