@@ -9,14 +9,19 @@ server, no analytics and nothing to sign up for.
 
 ## What it does
 
-- **Today.** What to watch next, one tap to mark it, and what airs this week.
-- **Shows.** A poster for every show, sorted by what you watched last. Open one
-  for a numbered list of episodes with their titles and air dates; tap to mark.
-  Episodes that have not aired are locked and unlock themselves when they do.
-- **Movies.** A watchlist, release dates, and a list of the ones you still need to
-  download, with posters.
-- **Discover.** New premieres on the streaming services you use over the next 60
-  days, filterable by language, and movies releasing in the next 90.
+- **Next.** What to watch now: one big card for the show you were on, one tap to
+  mark the episode, the rest of what is ready, and what airs this week.
+- **Library.** Everything you track, Shows or Movies, with search and status
+  filters. Open a show for a numbered list of episodes with their titles and air
+  dates; tap to mark. Episodes that have not aired are locked and unlock
+  themselves when they do. Movies keep a watchlist, release dates, and the ones
+  you still need to download.
+- **Find.** One search for shows and movies. Without a search it lists new
+  premieres on the streaming services you use over the next 60 days (filterable
+  by language) and movies releasing in the next 90.
+- **Phone, tablet, laptop.** On a phone a show opens as a page; from 720px wide
+  the tabs move to a side rail and the show opens beside the list. Light and
+  dark follow the device.
 - **International.** Search finds shows from anywhere TVmaze covers and tells you
   the language, service and country. English and Hindi so far; dates and times
   follow your phone's own settings.

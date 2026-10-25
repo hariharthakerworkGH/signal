@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0C0C0E">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0C0C0E" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F5F2" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
 <meta name="description" content="A private tracker for the shows and films you are watching, from anywhere.">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -16,21 +17,8 @@
 <a class="skip" href="#view" data-i18n="skip">Skip to content</a>
 
 <div id="app">
-  <header class="topbar">
-    <div class="topbar-in">
-      <button class="brand" data-tab="today" data-i18n-aria="brand_aria" aria-label="Signal">
-        <span data-mark></span><b>Signal</b>
-      </button>
-      <div class="topbar-actions">
-        <button class="icon-btn" id="syncBtn" data-syncall="1" data-i18n-aria="sync_aria" aria-label="Refresh shows"><span data-ico="sync"></span></button>
-        <button class="icon-btn" data-opensettings="1" data-i18n-aria="settings_aria" aria-label="Settings"><span data-ico="settings"></span></button>
-        <button class="btn primary btn-add" data-openadd="1" data-i18n-aria="add_aria" aria-label="Add a show or movie"><span data-ico="plus"></span><span data-i18n="add">Add</span></button>
-      </div>
-    </div>
-  </header>
   <div id="banner"></div>
   <main id="view" tabindex="-1"></main>
-  <p class="credit" data-i18n="credit">Data from TVmaze, Wikidata and Wikipedia</p>
 </div>
 
 <nav class="tabbar" id="tabbar" data-i18n-aria="nav_aria" aria-label="Main"></nav>

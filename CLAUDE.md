@@ -47,7 +47,9 @@ Classic scripts sharing one scope, loaded in this order by `index.html`:
 
 Clicks are handled by one delegated listener against the `ACTIONS` table in
 `app.js`. A new button needs a `data-<name>` attribute and a matching key in
-`ACTIONS` - nothing else.
+`ACTIONS` - nothing else (`tests.js` fails on a `data-` name with no handler, and
+on a `t("key")` that English or Hindi lacks). The ⋯ menu closes itself on any
+action except those in `KEEP_MENU`.
 
 ## How the tracking works
 
@@ -114,26 +116,45 @@ To add a language: its code in `SUPPORTED_LANGS` (core.js), its name in
 `LANG_NAMES` (ui.js), a block in `i18n.js`. `tests.html` fails if a language
 lacks a key English has, or has one it lacks, or drops a `{placeholder}`.
 
-The Hindi was written by the assistant and has not been read by a native
-speaker. It needs that before release.
+The Hindi was written by the assistant and has since been read by a Hindi
+reader and accepted. Hindi text runs wider and taller than English: check every
+new screen in it.
 
 CSS uses logical properties (`inline-start`, `margin-block`), so a right-to-left
 language can be added without redoing the layout. None is shipped yet.
 
 ## Design
 
-**Direction (3.1).** A quiet, dense index of what you are watching. The interface is
-near-neutral graphite so the posters carry the colour; it is made of hairlines and
-small type, not cards and big buttons. 3.0 looked like a template because it was
-sized like one (15px type, 40-44px controls, 12-20px corners, four accent colours);
-3.1 is a size and restraint fix first and a palette change second. Dials: ENERGY 2 /
-RHYTHM 3 / MOTION 2, density high - screens differ on purpose (a rail of posters on
-Today, a grid in Shows, a backdrop and episode rows on a show, rows with a thumbnail
-for movies). The identity motif is the app icon, a filled square in a rounded square:
-every status marker is a small rounded square, never a circle.
+**Direction (4.0).** 3.1 had the right look and the wrong map: four tabs, three
+add paths, a topbar, and a settings sheet holding everything else. 4.0 keeps the
+look and rebuilds the map as three places, each with one job:
+
+- **Next** (`viewNext`): one hero card for the show you were last on with the one
+  filled button, then "Ready to watch" rows, this week's schedule, and a single
+  "N to download" line that expands.
+- **Library** (`viewLibrary`): Shows | Movies, search, status chips with counts,
+  grid or list. Settings is the icon in its header (and the rail's foot on wide).
+- **Find** (`viewFind`): one search for shows and films; idle, it is Discover.
+
+A show or film is a page (`.panel.pg`): backdrop, header, progress, season chips,
+episode rows, and a sticky bar with the one main action. Everything else lives in
+the `⋯` menu (`.menu`), never in a row of buttons. From 720px the tabs become a
+76px left rail, the list is a fixed 340-380px column and the open title sits
+beside it in `#sheet.pane` (no scrim, list stays usable); non-title sheets become a
+centred panel. Light and dark follow `prefers-color-scheme`; the light set has its
+own tokens and clears the same 4.5:1 rule.
+
+The interface is near-neutral graphite so the posters carry the colour; it is made
+of hairlines and small type, not cards and big buttons. 3.0 looked like a template
+because it was sized like one (15px type, 40-44px controls, 12-20px corners, four
+accent colours). Dials: ENERGY 2 / RHYTHM 3 / MOTION 2, density high - screens
+differ on purpose (a hero card on Next, a poster grid in Library, a backdrop and
+episode rows on a show). The identity motif is the app icon, a filled square in a
+rounded square: every status marker is a small rounded square, never a circle.
 
 Scale: 14px body, 12-13px for secondary text, 11px for chips and tab labels. Controls
-are 28px (small), 34px (default), 36px (icon button); top bar 48px, tab bar 52px.
+are 28px (small), 34px (default), 36px (icon button), 40-44px for the one main
+button and the search field; tab bar 56px (a 76px rail from 720px). No topbar.
 Corners 4px (chips, thumbs), 6-8px (buttons, cards, posters), 12px (panels). Rows are
 separated by hairlines (`--hair`), not by cards or hover boxes. A figure that is
 only a figure (73 episodes to watch) is a line of text, not a card. On a phone a
@@ -144,7 +165,8 @@ file has). Open and geometric, easy to read small on dark, covers Latin Extended
 Other scripts fall through to the phone's own UI font. No webfont is fetched.
 
 Amber is the one deliberate accent. **The solid amber button is for the one main
-action on a screen** (top-bar Add, a show's "Mark watched", onboarding). Every
+action on a screen** (the hero's "Mark watched", a title page's sticky bar,
+onboarding). Every
 repeated action (each card, each row) uses `.btn.soft`, a selected chip is a tinted
 outline, and a rating or "watched" tag is `.chip.tint`. `--cyan` (muted) is only for
 "downloaded" and for links; red is for what cannot be undone. Violet is gone: a
@@ -156,10 +178,13 @@ writes a raw colour (hover steps, inks, scrims and shadows are tokens too, and
 shadows are tinted with the page colour).
 
 Three text tiers - `--text`, `--dim`, `--faint` - and **every one clears WCAG AA
-(4.5:1) on all five surfaces** it can land on: `--well`, `--bg`, `--card`,
-`--cardup` and `--cardhi` (the toast). Measured in 3.1: the lowest is `--faint` on
-`--cardhi` at 5.08. Every accent and the red clear 5.2 on all five. The edge of an
-input is `--edge`, 3:1 on the surfaces it sits on. A dark theme makes it easy to add
+(4.5:1) on all five surfaces** it can land on: `--well`, `--bg`, `--card`, `--up`
+and `--hi` (the toast), in both themes. Measured in 4.0: the lowest in dark is
+`--faint` on `--hi` at 5.08, in light `--faint` on `--hi` at 4.72; every accent
+and the red clear 4.5 on all five. The edge of an input is `--edge`, 3:1 on the
+surfaces it sits on. The light amber fill is only 2.06:1 on white, so a filled
+amber control always carries a dark ink glyph or label (9:1) and an unchecked box
+keeps its `--edge` outline. A dark theme makes it easy to add
 a quieter grey that fails; don't. Measure any new colour against all five first.
 Soft-button text, button inks and text over the blurred poster backdrop (worst case
 a pure white poster) were measured too. Disabled controls are exempt.
@@ -182,11 +207,13 @@ once, one banner at a time. Comments explain why, in plain English.
 There is no git on the owner's machine. Node is at `C:\Program Files\nodejs`
 (not on the bash PATH); Python is `py`.
 
-1. Serve the folder (`py -m http.server`) and open it. The service worker caches
-   aggressively: clear the cache and unregister it before re-testing. In the
+1. Serve the folder (`py -m http.server`) and open it. The service worker is
+   cache-first, so after a release the first open still shows the old version and
+   the next one the new. Clear the cache and unregister it before re-testing. In the
    desktop app's browser pane a service worker does not register on a locally
-   served page, and the pane caches scripts across reloads (fetch each file with
-   `cache: "reload"` first); verify offline behaviour on the live site.
+   served page (the console error is expected), and the pane caches scripts across
+   reloads (fetch each file with `cache: "reload"` first); verify offline behaviour
+   on the live site.
 2. Open `tests.html`, or run `tests.js` under Node (load `i18n.js`, `core.js`,
    `tests.js` in one `vm` context and call `runAll`). They never touch a real
    library. Anything that touches marks, sync or time gets a test, and a new test
@@ -198,8 +225,8 @@ There is no git on the owner's machine. Node is at `C:\Program Files\nodejs`
    hit-test. Also run it against a real backup after a reload, not a fresh profile.
    Test with a throwaway browser profile, never the owner's real data. Anything
    that touches marks or sync is checked against a copy of a real backup first.
-4. Versions on screen read like an app's: `3.0`, `3.1` for features, `3.1.1` for a
-   fix, `4.0` for a rebuild (`APP_VERSION` in core.js). Every release also raises
+4. Versions on screen read like an app's: `4.0`, `4.1` for features, `4.0.1` for a
+   fix, `5.0` for a rebuild (`APP_VERSION` in core.js). Every release also raises
    the hidden `BUILD` counter by one, with `CACHE_NAME` in sw.js (`signal-v<BUILD>`).
 5. `APP_SHELL` in sw.js must list every file the page loads (`tests.html` checks it).
    One typo and `addAll()` rejects: nothing is cached, silently.

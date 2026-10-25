@@ -66,14 +66,18 @@ function toast(text, o) {
 const clearToast = () => { clearTimeout(toastTimer); $("toast").innerHTML = ""; };
 
 /* ================= opening things ================= */
+/* What a tab needs fetched when it opens. */
+function tabEnter(name) {
+  if (name === "find") { fetchDiscover(false); fetchMovieDiscover(false); }
+  if (name === "library" && libKind === "movies") ensureMoviePosters();
+}
 function setTab(name) {
-  tab = name; store("signal.tab", name); window.scrollTo(0, 0); render();
-  if (name === "discover") (discTab === "movies" ? fetchMovieDiscover(false) : fetchDiscover(false));
-  if (name === "movies") ensureMoviePosters();
+  tab = name; store("signal.tab", name); window.scrollTo(0, 0); $("app").scrollTop = 0; render();
+  tabEnter(name);
 }
 function openShow(id) {
   const sh = db.find((s) => s.id === id); if (!sh) return;
-  manageOpen = false; confirmDel = null; delete selSeason[id];
+  menuOpen = false; confirmDel = null; delete selSeason[id];
   openSheet({ type: "show", id });
   if (!sh.manual) loadInfo(id);
 }
@@ -85,21 +89,24 @@ async function openSettings(where) {
 }
 
 /* ================= searching and adding ================= */
+const emptyRes = (state, q) => ({ state, shows: [], movies: [], q });
+async function searchShows(q) {
+  const r = await maze("/search/shows?q=" + encodeURIComponent(q));
+  return (r || []).slice(0, 8).map((x) => x.show).map((h) => ({
+    id: h.id, name: h.name, year: h.premiered ? h.premiered.slice(0, 4) : null, poster: h.image && h.image.medium,
+    summary: plain(h.summary).slice(0, 120), lang: h.language,
+    where: (h.webChannel && h.webChannel.name) || (h.network && h.network.name) || "",
+    country: (h.network && h.network.country && h.network.country.name) || (h.webChannel && h.webChannel.country && h.webChannel.country.name) || "" }));
+}
 async function runAddSearch() {
-  const q = (($("aq") || {}).value || addQ).trim(); addQ = q; if (!q) return;
-  if (!navigator.onLine) { addRes = { state: "offline", items: [], q }; render(); return; }
-  addRes = { state: "busy", items: [], q }; render();
-  try {
-    if (addType === "show") {
-      const r = await maze("/search/shows?q=" + encodeURIComponent(q));
-      const items = (r || []).slice(0, 8).map((x) => x.show).map((h) => ({
-        id: h.id, name: h.name, year: h.premiered ? h.premiered.slice(0, 4) : null, poster: h.image && h.image.medium,
-        summary: plain(h.summary).slice(0, 120), lang: h.language,
-        where: (h.webChannel && h.webChannel.name) || (h.network && h.network.name) || "",
-        country: (h.network && h.network.country && h.network.country.name) || (h.webChannel && h.webChannel.country && h.webChannel.country.name) || "" }));
-      addRes = { state: "ok", items, q };
-    } else addRes = { state: "ok", items: await wdSearch(q), q };
-  } catch (e) { addRes = { state: "err", items: [], q }; }
+  const q = (($("aq") || {}).value || addQ).trim(); addQ = q;
+  if (!q) { addRes = emptyRes("idle", ""); render(); return; }
+  if (!navigator.onLine) { addRes = emptyRes("offline", q); render(); return; }
+  addRes = emptyRes("busy", q); render();
+  // Shows and films are asked at the same time; one failing must not hide the other.
+  const [s, m] = await Promise.allSettled([findType === "movie" ? [] : searchShows(q), findType === "show" ? [] : wdSearch(q)]);
+  const failed = s.status === "rejected" && m.status === "rejected";
+  addRes = { state: failed ? "err" : "ok", shows: s.status === "fulfilled" ? s.value : [], movies: m.status === "fulfilled" ? m.value : [], q };
   render();
 }
 async function addShowFlow(id) {
@@ -113,7 +120,7 @@ async function addShowFlow(id) {
   } catch (e) { toast(e.message === "DAILY" ? t("err_daily") : t("err_add_failed")); render(); }
 }
 async function addMovieFlow(qid) {
-  const hit = addRes.items.find((x) => x.id === qid); if (!hit) return;
+  const hit = addRes.movies.find((x) => x.id === qid); if (!hit) return;
   if (movies.some((m) => m.id === "mv-" + hit.id)) { toast(t("toast_dup_movie")); return; }
   try {
     const det = await wdDetails(hit.id); const m = addMovieFromWd(hit, det);
@@ -231,13 +238,15 @@ async function connectSync() {
 /* ================= the actions ================= */
 const ACTIONS = {
   /* navigation */
-  tab: (v) => setTab(v),
-  goto: (v) => { const [tb, lib] = v.split(":"); if (lib) { libTab = lib; libLimit = 60; } if (sheet) { sheet = null; popLayerSilently(); } setTab(tb); },
-  show: (v) => { if (sheet && sheet.type === "add") { sheet = null; popLayerSilently(); } openShow(+v); },
+  tab: (v) => { if (sheet) { sheet = null; confirmDel = null; movConfirmDel = null; popLayerSilently(); } setTab(v); },   // wide: a tab change closes the pane beside the list
+  goto: (v) => { const [tb, lib] = v.split(":"); if (lib) { libTab = lib; libLimit = 60; libKind = "shows"; store("signal.libkind", libKind); } if (sheet) { sheet = null; popLayerSilently(); } setTab(tb); },
+  show: (v) => openShow(+v),
   film: (v) => openFilm(v),
   closesheet: () => requestClose(),
-  openadd: (v) => { if (v === "movie") addType = "movie"; else if (v === "show") addType = "show"; openSheet({ type: "add" }); const f = $("aq"); if (f) f.focus(); },
+  openadd: (v) => { if (v === "movie" || v === "show") findType = v; if (sheet) { sheet = null; popLayerSilently(); } setTab("find"); const f = $("aq"); if (f) f.focus(); },
   opensettings: (v) => openSettings(v),
+  menu: () => { menuOpen = true; render(); const m = document.querySelector(".menu .mrow"); if (m) m.focus({ preventScroll: true }); },
+  closemenu: () => { menuOpen = false; confirmDel = null; render(); const b = document.querySelector("[data-menu]"); if (b) b.focus({ preventScroll: true }); },
   mact: (v, el) => modalCtl && modalCtl.onAction(v, el),
   undo: () => { applyUndo(); clearToast(); },
   dlbulk: (v) => { const [scope, id] = v.split(":"); clearToast(); markBulkDownloaded(+id, scope); },
@@ -263,7 +272,8 @@ const ACTIONS = {
   schedtoggle: () => { schedOpen = !schedOpen; render(); },
   mvpend: (v) => { const m = movieById(v); if (!m) return; m.dl = true; m.dlWant = false; touchMovie(m); save(); render(); toast(t("toast_mv_dl", { title: m.title })); },
 
-  /* shows */
+  /* library */
+  libkind: (v) => { libKind = v === "movies" ? "movies" : "shows"; store("signal.libkind", libKind); render(); if (libKind === "movies") ensureMoviePosters(); },
   lib: (v) => { libTab = v; libLimit = 60; render(); },
   libmore: () => { libLimit += 60; render(); },
   viewtoggle: () => { viewMode = viewMode === "grid" ? "list" : "grid"; store("signal.view", viewMode); render(); },
@@ -283,8 +293,7 @@ const ACTIONS = {
     toast(mode === "dropped" ? t("toast_dropped", { title: sh.title }) : mode === "resume" ? t("toast_resumed", { title: sh.title })
       : t("toast_filed", { title: sh.title, cat: t(mode === "done" ? "cat_done" : "cat_waiting") })); },
   sync: (v) => syncShow(+v),
-  manadd: (v) => addEpisodesModal(+v),
-  manage: () => { manageOpen = !manageOpen; render(); },
+  manadd: (v) => { render(); addEpisodesModal(+v); },
   aboutmore: (v) => { aboutOpen[+v] = !aboutOpen[+v]; render(); },
   del: (v) => { confirmDel = +v; render(); },
   delno: () => { confirmDel = null; render(); },
@@ -318,7 +327,6 @@ const ACTIONS = {
     delMap[v] = Date.now(); metaDirty = true; movConfirmDel = null; if (sheet) { sheet = null; popLayerSilently(); } save(); render(); },
 
   /* discover */
-  disctab: (v) => { discTab = v; render(); if (v === "movies") fetchMovieDiscover(false); else fetchDiscover(false); },
   disclang: (v) => { discLang = v; render(); },
   discopen: (v) => { const id = +v; discOpen = discOpen === id ? null : id; render();
     if (discOpen === id) { const it = ((discCache && discCache.items) || []).find((x) => x.id === id); if (it && !infoCache[id + ":" + it.season]) loadInfo(id, it.season); } },
@@ -330,8 +338,8 @@ const ACTIONS = {
       watched: false, watchedAt: null, dlWant: false, dl: false, addedAt: Date.now(), updatedAt: Date.now() };
     movies.unshift(m); dirtyMovies.add(m.id); save(); render(); toast(t("toast_added_movie", { title: it.title })); },
 
-  /* the add sheet */
-  addtype: (v) => { addType = v; addRes = { state: "idle", items: [], q: "" }; render(); const f = $("aq"); if (f) f.focus(); },
+  /* search on the Find tab */
+  findtype: (v) => { findType = v; if (addRes.state !== "idle" && addQ) runAddSearch(); else render(); },
   addshow: (v) => addShowFlow(+v),
   addmovie: (v) => addMovieFlow(v),
   manualshow: () => manualShowModal(),
@@ -351,10 +359,15 @@ const ACTIONS = {
     storageInfo = await storageLine(); render(); toast(t("set_cleared")); },
 };
 const ACT_KEYS = Object.keys(ACTIONS);
+/* Everything in the ⋯ menu closes it, except the switch and the remove confirmation. */
+const KEEP_MENU = ["dltrack", "del", "delno", "closemenu"];
 document.addEventListener("click", (ev) => {
   let el = ev.target;
   while (el && el.nodeType === 1) {
-    if (el.dataset) for (const k of ACT_KEYS) if (k in el.dataset) { ACTIONS[k](el.dataset[k], el, ev); return; }
+    if (el.dataset) for (const k of ACT_KEYS) if (k in el.dataset) {
+      if (menuOpen && !KEEP_MENU.includes(k) && el.closest(".menu")) menuOpen = false;
+      ACTIONS[k](el.dataset[k], el, ev); return;
+    }
     el = el.parentElement;
   }
 });
@@ -363,7 +376,7 @@ document.addEventListener("input", (ev) => {
   const el = ev.target;
   if (el.id === "sf") { showFilter = el.value; libLimit = 60; render(); }
   else if (el.id === "mf") { movFilter = el.value; movLimit = 60; render(); }
-  else if (el.id === "aq") addQ = el.value;
+  else if (el.id === "aq") { addQ = el.value; if (!addQ.trim() && addRes.state !== "idle") { addRes = emptyRes("idle", ""); render(); } }
 });
 document.addEventListener("change", (ev) => {
   const el = ev.target;
@@ -373,8 +386,12 @@ document.addEventListener("change", (ev) => {
   else if (modalCtl && modalCtl.onChange) modalCtl.onChange(el);
 });
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape" && (modalOpen || sheet)) { ev.preventDefault(); requestClose(); }
+  if (ev.key !== "Escape") return;
+  if (menuOpen && !modalOpen) { ev.preventDefault(); ACTIONS.closemenu(); }
+  else if (modalOpen || sheet) { ev.preventDefault(); requestClose(); }
 });
+/* Crossing 720px turns the open show from a page over the list into a pane beside it (or back). */
+window.matchMedia("(min-width:720px)").addEventListener("change", () => { if (booted) render(); });
 
 /* ---- files chosen from Settings ---- */
 function readFile(file, cb) { const r = new FileReader(); r.onload = () => cb(String(r.result)); r.readAsText(file); }
@@ -423,8 +440,7 @@ document.addEventListener("visibilitychange", () => {
   booted = true;
   render();
   registerSW();
-  if (tab === "discover") (discTab === "movies" ? fetchMovieDiscover(false) : fetchDiscover(false));
-  if (tab === "movies") ensureMoviePosters();
+  tabEnter(tab);
   await pullCloud(true);
   await refreshStale();
 })();

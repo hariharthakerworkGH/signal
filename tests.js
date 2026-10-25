@@ -191,6 +191,23 @@ test("taps: a full-screen container that starts empty is hidden while it is empt
   }
 });
 
+// A button whose data- name has no handler does nothing, silently. 4.0 renamed most of them.
+test("taps: every data-<name> a screen draws has a handler in ACTIONS", async (env) => {
+  const app = await env.text("app.js"), ui = await env.text("ui.js"), html = await env.text("index.html");
+  const handled = new Set([...app.match(/const ACTIONS = \{([\s\S]*?)\n\};/)[1].matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]));
+  yes(handled.size > 40, "could not read ACTIONS: " + handled.size);
+  const used = new Set([...(ui + app + html).matchAll(/\sdata-([a-z]+)=/g)].map((m) => m[1]));
+  const plain = new Set(["i18n", "sk", "ttrow", "mact"]);   // read by other code, not by the click table
+  eq([...used].filter((n) => !handled.has(n) && !plain.has(n)).sort(), []);
+});
+test("language: every word the screens ask for exists in English and Hindi", async (env) => {
+  const src = (await env.text("ui.js")) + (await env.text("app.js")) + (await env.text("index.html"));
+  const keys = new Set([...src.matchAll(/\bt\(\s*(?:[^"')]*\?\s*)?"([a-z][a-z0-9_]*)"(?!\s*\+)/g)].map((m) => m[1]));   // "cat_" + x is a family, not a key
+  for (const m of src.matchAll(/\b(?:data-i18n|data-i18n-aria)="([a-z0-9_]+)"/g)) keys.add(m[1]);
+  yes(keys.size > 100, "could not read the keys: " + keys.size);
+  for (const lang of ["en", "hi"]) eq([...keys].filter((k) => !(k in STRINGS[lang])).sort(), [], lang);
+});
+
 async function runAll(env) {
   const out = [];
   for (const tc of TESTS) {
