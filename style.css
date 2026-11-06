@@ -237,8 +237,9 @@ select.field { padding-inline:10px 6px; }
 .banner > .ico { color:var(--dim); width:16px; height:16px; }
 .banner.warn { border-color:var(--red-line); }
 .banner.warn > .ico { color:var(--red); }
-.banner .txt { flex:1 1 160px; min-width:0; }
+.banner .txt { flex:1 1 120px; min-width:0; }
 .banner .btn { flex:none; }
+.banner .acts { display:flex; gap:8px; flex:none; margin-inline-start:auto; }
 .stucklist { margin-block-start:6px; padding:4px 12px; background:var(--card); border-radius:var(--r-m); }
 .stucklist div { display:flex; justify-content:space-between; gap:12px; align-items:baseline; padding:8px 0; border-block-end:1px solid var(--hair); font-size:13px; }
 .stucklist div:last-of-type { border:0; }

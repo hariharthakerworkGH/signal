@@ -527,8 +527,9 @@ function sheetSettings() {
       <details class="how"><summary>${t("set_how")}</summary><p>${t("set_how_body")}</p></details></div></div>
     <div class="group"><h3>${t("set_data")}</h3><div class="card"><p>${t("set_data_note")}${lastExp ? " " + t("set_last_export", { ago: agoLabel(lastExp) }) : ""}</p>
       <div class="btns"><button class="btn" data-exportdb="1">${t("set_export")}</button>${canShareFile() ? `<button class="btn" data-sharedb="1">${t("set_share")}</button>` : ""}<button class="btn" data-importbtn="1">${t("set_import")}</button></div>
-      <div class="btns"><button class="btn" data-calall="1">${t("set_cal")}</button></div>
-      <div class="btns"><button class="btn" data-ttpick="shows">${t("set_tt_shows")}</button><button class="btn" data-ttpick="movies">${t("set_tt_movies")}</button></div></div></div>
+      </div></div>
+    <div class="group"><h3>${t("set_cal_h")}</h3><div class="card"><p>${t("set_cal_note")}</p><div class="btns"><button class="btn" data-calall="1">${t("set_cal")}</button></div></div></div>
+    <div class="group"><h3>${t("set_tt_h")}</h3><div class="card"><div class="btns"><button class="btn" data-ttpick="shows">${t("set_tt_shows")}</button><button class="btn" data-ttpick="movies">${t("set_tt_movies")}</button></div></div></div>
     <div class="group"><h3>${t("set_storage")}</h3><div class="card"><p class="meter">${esc(storageInfo.text)}</p>
       ${storageInfo.legacy > 1000 ? `<button class="btn sm self-start" data-clearlegacy="1">${t("set_clear_old", { mb: (storageInfo.legacy / 1048576).toFixed(1) })}</button><p>${t("set_clear_old_help")}</p>` : ""}</div></div>
     <div class="group"><h3>${t("set_about")}</h3><div class="card"><p><b>${t("set_version", { v: APP_VERSION })}</b></p><p>${t("set_credit")}</p></div></div></div>`;
@@ -546,7 +547,7 @@ function bannerHTML() {
       + (stuckOpen ? `<div class="stucklist">${stk.map((s) => `<div><span class="clip">${esc(s.title)}</span><small>${esc(failWhy(s.syncFail))}</small></div>`).join("")}<p>${t("b_stuck_note")}</p></div>` : "");
   }
   const nag = db.length > 0 && !ghToken && Date.now() - (+store("signal.lastexport") || 0) > 30 * 864e5 && Date.now() > (+store("signal.nagsnooze") || 0);
-  if (nag) return `<div class="banner"><span class="txt">${t("b_nag")}</span><button class="btn sm soft" data-bannerexport="1">${t("b_export")}</button><button class="btn sm ghost" data-nagsnooze="1">${t("b_later")}</button></div>`;
+  if (nag) return `<div class="banner"><span class="txt">${t("b_nag")}</span><span class="acts"><button class="btn sm soft" data-bannerexport="1">${t("b_export")}</button><button class="btn sm ghost" data-nagsnooze="1">${t("b_later")}</button></span></div>`;
   return "";
 }
 function paintStatus() {

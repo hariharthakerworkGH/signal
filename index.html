@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Signal</title>
 <!-- ?v= is the build number: a new build is a new address, so it is never served from an old copy (tests.js checks). -->
-<link rel="stylesheet" href="style.css?v=52">
+<link rel="stylesheet" href="style.css?v=53">
 </head>
 <body>
 <!-- Shown from the first paint until the app is drawn and any update has been picked up. app.js removes it. -->
@@ -44,11 +44,11 @@
 <input type="file" id="mvFile" accept=".csv" class="hidden" tabindex="-1">
 
 <!-- One scope, loaded in order: strings, pure logic, data, screens, wiring. -->
-<script src="i18n.js?v=52"></script>
-<script src="core.js?v=52"></script>
-<script src="data.js?v=52"></script>
-<script src="ui.js?v=52"></script>
-<script src="app.js?v=52"></script>
+<script src="i18n.js?v=53"></script>
+<script src="core.js?v=53"></script>
+<script src="data.js?v=53"></script>
+<script src="ui.js?v=53"></script>
+<script src="app.js?v=53"></script>
 <!-- If the app cannot start (a script failed to load) the splash must not hide that for ever. -->
 <script>setTimeout(function () { var s = document.getElementById("splash"); if (s) s.remove(); }, 10000);</script>
 </body>
