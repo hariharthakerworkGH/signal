@@ -70,6 +70,14 @@ action except those in `KEEP_MENU`.
   is never believed. Shows saved by 4.1 or later carry `tv: 2` (times already
   read the new way); on any other show `stripFakeTimes()` drops a noon-UTC time
   and `needsTimeFix()` makes it refresh when opened.
+- **Usual drop hour (4.2).** `DROP_AT` in core.js lists services whose date-only episodes
+  open at a known hour (Netflix: 02:00 US Pacific). `dropRule(sh)` matches the show's
+  service; `airMoment(ep, show)` then uses it instead of end-of-date. Only add a service
+  with a written source: Disney+, Hulu, Apple TV, HBO Max, Paramount+ and Prime Video vary
+  by show and stay on end-of-date. A real `ts` always beats the table.
+- **Calendar file (4.2).** `icsCalendar()` (core.js) writes episodes still to come as an
+  .ics: a real time is a UTC instant (the calendar shows it in its owner's zone), a
+  date-only episode is an all-day event, no hour invented. Capped at 40 per show.
 - **The viewer's zone.** Every clock time, "today" and the day a schedule row
   sits under is read in `viewTZ()`: the zone chosen in Settings (`TZ_PREF`,
   stored as `signal.tz`), else the device's. No location is asked for or sent;
@@ -86,6 +94,10 @@ action except those in `KEEP_MENU`.
 - Cloud sync is a private Gist holding `{shows, deleted, movies}`. Deletions are
   tombstones in `deleted`, so a delete on one device does not get resurrected by
   the other. Pull on open and on tab focus, push 2.5s after a change.
+- Without GitHub, a backup file is the sync: Export (or the phone's share sheet) on one
+  device, Import on the other. `parseBackup()` checks the records, then `importDb` MERGES
+  through `mergeCloud`/`mergeMovies`, exactly like a Gist pull, so an import adds and never
+  replaces. The file carries `deleted` too and never the token.
 - Merging is per key, never per show (`mergeMarks` / `mergeShow`). Taking
   whichever whole show had the newer `updatedAt` loses a mark every time two
   devices touch different episodes before syncing. Where neither side has a

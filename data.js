@@ -254,7 +254,7 @@ async function fetchFullShow(showId, existingWatched) {
   const homeOn = (det.webChannel && det.webChannel.name) || (det.network && det.network.name) || null;
   const firstAir = det.premiered || null;
   const tz = ((det.network && det.network.country) || (det.webChannel && det.webChannel.country) || {}).timezone || null;
-  const hasAired = seasons.some((s) => s.eps.some((e) => epLive(e, tz)));
+  const hasAired = seasons.some((s) => s.eps.some((e) => epLive(e, { tz, watchOn: homeOn ? [homeOn] : [] })));
   return {
     id: det.id, title: det.name,
     year: firstAir ? +firstAir.slice(0, 4) : null,
@@ -520,24 +520,45 @@ async function refreshStale() {
 }
 
 /* ================= export and import ================= */
+function downloadFile(name, type, body) {
+  const url = URL.createObjectURL(new Blob([body], { type }));
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+/* The backup carries the deletion records too, so a show removed on one device
+   stays removed when this file is brought to another. It never carries the token. */
+const backupJSON = () => JSON.stringify({ v: 4, exported: new Date().toISOString(), shows: db, deleted: delMap, movies }, null, 1);
+const backupName = () => "signal-backup-" + todayISO() + ".json";
 function exportDb() {
-  const blob = new Blob([JSON.stringify({ v: 3, exported: new Date().toISOString(), shows: db, movies }, null, 1)], { type: "application/json" });
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-  a.download = "signal-backup-" + todayISO() + ".json"; a.click();
+  downloadFile(backupName(), "application/json", backupJSON());
   store("signal.lastexport", String(Date.now()));
 }
-/* A backup is a file from outside, so its records are checked before they are
-   believed: a show needs an id and a list of seasons, a film needs an id. */
+/* The phone's own share sheet (Drive, Files, a chat to yourself) where the browser has one. */
+function canShareFile() {
+  try { return !!(navigator.canShare && navigator.canShare({ files: [new File(["{}"], "a.json", { type: "application/json" })] })); } catch (e) { return false; }
+}
+async function shareDb() {
+  try { await navigator.share({ files: [new File([backupJSON()], backupName(), { type: "application/json" })] }); store("signal.lastexport", String(Date.now())); }
+  catch (e) { if (e && e.name !== "AbortError") toast(t("err_share")); }   // closing the sheet is not an error
+}
+/* A calendar file of what is still to come: one show, or the whole library with films. */
+function exportIcs(list, films) {
+  const r = icsCalendar(list, films);
+  if (!r.count) { toast(t("toast_cal_none")); return; }
+  downloadFile("signal-coming-up.ics", "text/calendar", r.text);
+  toast(t("toast_cal", { n: r.count }));
+}
+/* A backup is a file from outside. Its records are checked (parseBackup) and then MERGED
+   into the library the way a second device is, mark by mark: bringing a file in can add
+   what is missing here and never drops a mark made since the file was saved. */
 function importDb(file) {
   const r = new FileReader();
   r.onload = () => {
     try {
-      const j = JSON.parse(r.result);
-      if (!Array.isArray(j.shows)) { toast(t("err_not_backup")); return; }
-      const shows = j.shows.filter((s) => s && typeof s === "object" && s.id != null && Array.isArray(s.seasons));
-      db = shows; cleanLibrary(); db.forEach((x) => touch(x));
-      if (Array.isArray(j.movies)) { movies = j.movies.filter((m) => m && typeof m === "object" && m.id != null); movies.forEach((x) => touchMovie(x)); }
-      saveAll().then(() => { schedulePush(); render(); toast(t("toast_imported", { shows: db.length, movies: movies.length })); });
+      const b = parseBackup(r.result);
+      if (b.bad) { toast(t(b.bad === "notbackup" ? "err_not_backup" : "err_import_invalid")); return; }
+      mergeCloud(b.shows, b.deleted); mergeMovies(b.movies);
+      saveAll().then(() => { schedulePush(); render(); toast(t("toast_imported", { shows: t("n_shows", { n: db.length }), movies: t("n_movies", { n: movies.length }) })); });
     } catch (e) { toast(t("err_import_invalid")); }
   };
   r.readAsText(file);
@@ -796,7 +817,7 @@ async function ttImport(sel, onStep) {
       } else merged++;
       let hit = 0;
       for (const seas of target.seasons) for (const ep of seas.eps) {
-        if (it.eps[seas.season + "-" + ep.e] && epLive(ep, target.tz)) { setWatched(target, epK(seas.season, ep.e), true, 1); hit++; }
+        if (it.eps[seas.season + "-" + ep.e] && epLive(ep, target)) { setWatched(target, epK(seas.season, ep.e), true, 1); hit++; }
       }
       if (hit === 0 && !db.find((x) => x.id === found.id && x !== target)) skipped.push({ n: it.name, code: "nomatch", count: Object.keys(it.eps).length });
       touch(target); saveLocal();

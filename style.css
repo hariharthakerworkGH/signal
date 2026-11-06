@@ -382,8 +382,8 @@ select.field { padding-inline:10px 6px; }
 .menu { position:absolute; z-index:11; inset-inline:0; inset-block-end:0; max-height:86%; overflow-y:auto; background:var(--card); border-radius:16px 16px 0 0;
   border-block-start:1px solid var(--hair); padding:8px 0 calc(16px + env(safe-area-inset-bottom)); animation:rise .22s var(--ease) both; }
 .menu .grab { width:36px; height:4px; border-radius:2px; background:var(--edge); margin:0 auto 8px; }
-.menu .mrow { display:flex; align-items:center; gap:12px; width:100%; min-height:48px; padding:0 16px; border-block-start:1px solid var(--hair); text-align:start; color:var(--text); text-decoration:none; font-size:15px; font-weight:500; }
-.menu .mrow:first-of-type { border:0; }
+.menu .mrow { display:flex; align-items:center; gap:12px; width:100%; min-height:48px; padding:10px 16px; border-block-start:1px solid var(--hair); text-align:start; color:var(--text); text-decoration:none; font-size:15px; font-weight:500; }
+.menu .grab + .mrow { border:0; }   /* not :first-of-type, which also matched the first link (an <a>) and ate its hairline */
 .menu .mrow > span:first-child { flex:1; min-width:0; }
 .menu .mrow .s { flex:none; font-size:12px; color:var(--faint); font-weight:400; }
 .menu .mrow.lk { color:var(--at); }

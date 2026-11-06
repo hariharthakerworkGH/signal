@@ -29,6 +29,11 @@ server, no analytics and nothing to sign up for.
 - **Sync two devices** through a private Gist, using a GitHub token that has only
   the `gist` permission. Marks merge episode by episode, so marking different
   episodes on a phone and a laptop keeps both.
+- **Sync without GitHub.** Export a backup on one device (or share it from the phone's
+  share sheet) and import it on the other. The import merges the same way, so nothing
+  is lost.
+- **Calendar.** Add one show's coming episodes, or everything coming up, to any
+  calendar app as an `.ics` file.
 
 ## Where the data comes from
 

@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "4.1";
-const BUILD = 51;
+const APP_VERSION = "4.2";
+const BUILD = 52;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
@@ -141,16 +141,21 @@ function localDayMs(dateStr, tz, atEnd) {
 // With no clock time all TVmaze knows is the DATE, in the show's own zone. The episode
 // could land at any hour of it, so it unlocks when that date has ended there (US Pacific
 // when no zone is on record): a few hours late is better than saying it is out before it is.
-function airMoment(ep, tz) { return localDayMs(ep.air, tz, true); }
-function epLive(ep, tz) {
+/* `where` is a show (preferred: its service may have a known release hour) or a bare zone name. */
+function airMoment(ep, where) {
+  const sh = where && typeof where === "object" ? where : null, tz = sh ? sh.tz : where;
+  const rule = sh && dropRule(sh);
+  return rule ? localDayMs(ep.air, rule.tz, false) + rule.h * 3600e3 : localDayMs(ep.air, tz, true);
+}
+function epLive(ep, where) {
   if (ep.ts) return new Date(ep.ts).getTime() <= Date.now();
   if (!ep.air) return false;
-  return Date.now() >= airMoment(ep, tz);
+  return Date.now() >= airMoment(ep, where);
 }
-function aired(sh, ep) { return (sh && sh.unlockAll) ? true : epLive(ep, sh && sh.tz); }
+function aired(sh, ep) { return (sh && sh.unlockAll) ? true : epLive(ep, sh || null); }
 function isUp(sh) {
   if (sh.unlockAll) return false; // the user has declared the air dates wrong; treat the grid as live
-  return !(sh.seasons && sh.seasons.some((se) => se.eps.some((ep) => epLive(ep, sh.tz))));
+  return !(sh.seasons && sh.seasons.some((se) => se.eps.some((ep) => epLive(ep, sh))));
 }
 function localDate(ts) { return ymd(new Date(ts).getTime()); }
 
@@ -198,7 +203,7 @@ function lastWatched(sh) {
 function lastAiredMs(sh) {
   let m = 0;
   for (const se of sh.seasons) for (const ep of se.eps) {
-    if (!epLive(ep, sh.tz)) continue;
+    if (!epLive(ep, sh)) continue;
     const ts = ep.ts ? new Date(ep.ts).getTime() : (ep.air ? new Date(ep.air + "T00:00:00").getTime() : 0);
     if (ts > m) m = ts;
   }
@@ -221,7 +226,7 @@ function soonInfo(sh) {
     ts = sh.nextEp.ts; dateStr = ts ? localDate(ts) : sh.nextEp.date; code = codeOf(sh.nextEp.s, sh.nextEp.e);
   }
   if (!ts && !dateStr) return null;
-  const ms = ts ? new Date(ts).getTime() : localDayMs(dateStr, sh.tz, true);
+  const ms = ts ? new Date(ts).getTime() : airMoment({ air: dateStr }, sh);
   if (ms < now - 3600e3) return null;
   const n = daysAway(dateStr || localDate(ts));
   if (n > 99) return null;
@@ -333,6 +338,74 @@ function mergeShow(a, b) {            // a = this device, b = the gist
   return out;
 }
 
+/* ================= a backup file from outside ================= */
+/* Nothing here touches the library: it only says what a file holds, with every record
+   checked first. A show needs an id and a list of seasons, a film needs an id, and a
+   deletion record needs a time. `bad` names the way a file failed. */
+function parseBackup(text) {
+  let j; try { j = JSON.parse(text); } catch (e) { return { bad: "invalid" }; }
+  if (!j || typeof j !== "object" || !Array.isArray(j.shows)) return { bad: "notbackup" };
+  const del = {};
+  if (j.deleted && typeof j.deleted === "object" && !Array.isArray(j.deleted))
+    for (const [id, ts] of Object.entries(j.deleted)) if (Number.isFinite(+ts) && +ts > 0) del[id] = +ts;
+  return {
+    shows: j.shows.filter((s) => s && typeof s === "object" && s.id != null && Array.isArray(s.seasons)),
+    movies: Array.isArray(j.movies) ? j.movies.filter((m) => m && typeof m === "object" && m.id != null) : [],
+    deleted: del,
+  };
+}
+
+/* ================= calendar file (.ics) ================= */
+/* Every episode still to come, as an event a calendar app can show in its owner's own
+   zone. An episode with a real clock time is a timed event (an instant, so the calendar
+   converts it to wherever its owner is). One with only a date is an all-day event on
+   that date: no hour was announced, so none is invented. The text is RFC 5545: commas,
+   semicolons and newlines escaped, lines folded at 75 bytes, CRLF between lines. */
+function icsText(s) { return String(s ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n"); }
+function icsFold(line) {
+  let out = "", n = 0;
+  for (const ch of line) {
+    const c = ch.codePointAt(0), b = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    if (n + b > 75) { out += "\r\n "; n = 1; }
+    out += ch; n += b;
+  }
+  return out;
+}
+const icsInstant = (ms) => new Date(ms).toISOString().replace(/[-:]|\.\d{3}/g, "");   // an instant in UTC, not a calendar day
+function icsDayAfter(iso) {
+  const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + 1));
+  return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate());
+}
+function icsCalendar(shows, films, now) {
+  now = now || Date.now();
+  const lines = [], stamp = icsInstant(now); let count = 0;
+  const event = (uid, summary, note, ts, date, mins) => {
+    count++;
+    lines.push("BEGIN:VEVENT", "UID:" + uid + "@signal", "DTSTAMP:" + stamp);
+    if (ts) lines.push("DTSTART:" + icsInstant(new Date(ts).getTime()), "DTEND:" + icsInstant(new Date(ts).getTime() + mins * 60000));
+    else lines.push("DTSTART;VALUE=DATE:" + date.replace(/-/g, ""), "DTEND;VALUE=DATE:" + icsDayAfter(date));
+    lines.push("SUMMARY:" + icsText(summary));
+    if (note) lines.push("DESCRIPTION:" + icsText(note));
+    lines.push("END:VEVENT");
+  };
+  for (const sh of shows || []) {
+    if (dropped(sh)) continue;
+    let n = 0;
+    for (const se of sh.seasons || []) for (const ep of se.eps || []) {
+      if (n >= 40) break;                                   // a daily serial would otherwise fill a year
+      if ((!ep.ts && !ep.air) || epLive(ep, sh) || (sh.watched && sh.watched[epK(se.season, ep.e)])) continue;
+      event("ep-" + sh.id + "-" + se.season + "-" + ep.e, sh.title + " " + codeOf(se.season, ep.e), ep.name, ep.ts, ep.air, +sh.runtime > 0 ? +sh.runtime : 60);
+      n++;
+    }
+  }
+  for (const m of films || []) {
+    if (m.watched || !m.releaseDate || m.releaseDate < ymd(now)) continue;
+    event("mv-" + m.id, t("ics_film", { title: m.title }), "", null, m.releaseDate, 0);
+  }
+  const head = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Signal//Watch tracker//EN", "CALSCALE:GREGORIAN", "X-WR-CALNAME:" + icsText(t("ics_cal")), "X-WR-TIMEZONE:" + viewTZ()];
+  return { count, text: [...head, ...lines, "END:VCALENDAR"].map(icsFold).join("\r\n") + "\r\n" };
+}
+
 /* ================= streaming services ================= */
 /* TVmaze calls Apple's service "Apple TV", not "Apple TV+", so the old match
    never fired and Apple shows never reached Discover. The names below are the
@@ -369,6 +442,19 @@ const PLATFORMS = [
   { id: "zee5",        label: "ZEE5",        match: ["zee5"],                  r: ["IN"] },
   { id: "sonyliv",     label: "SonyLIV",     match: ["sonyliv"],               r: ["IN"] },
 ];
+/* When a service puts a whole season or episode out, for a show that has a date but no clock time.
+   The date is the service's own (TVmaze gives the US date), so it opens at `h` hours into that date in `tz`.
+   A guess, kept short on purpose: only a service whose hour is well documented goes here, and `h` carries
+   a margin after the usual hour, so a late drop still never shows as out early. Netflix drops at midnight Pacific.
+   Disney+, Hulu, Apple TV, HBO Max, Paramount+ and Prime Video were checked in 4.2 and vary between midnight and
+   evening by show, so they stay on the safe end-of-date rule until a per-show source exists. */
+const DROP_AT = { netflix: { tz: "America/Los_Angeles", h: 2 } };
+function dropRule(sh) {
+  const name = String((sh.watchOn && sh.watchOn[0]) || "").toLowerCase();
+  if (!name) return null;
+  for (const p of PLATFORMS) if (DROP_AT[p.id] && p.match.some((m) => name.includes(m))) return DROP_AT[p.id];
+  return null;
+}
 /* Nearby services first, then the ones sold everywhere, then the rest. */
 function platformsByRelevance(region) {
   const rank = (p) => (p.r.includes(region) ? 0 : p.r.length === 0 ? 1 : 2);

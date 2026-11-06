@@ -130,6 +130,66 @@ test("zone: the schedule is in the order of the days its rows show, even for a d
     });
   } finally { setTZ(""); }
 });
+test("drop hour: a Netflix episode with only a date opens 2 hours into that date in Pacific, others stay on end-of-date", () => {
+  const e = { e: 1, air: "2026-11-10", ts: null }, nf = { tz: null, watchOn: ["Netflix"] }, hulu = { tz: null, watchOn: ["Hulu"] };
+  atTime("2026-11-10T09:59:00Z", () => yes(!epLive(e, nf), "before 2am Pacific"));
+  atTime("2026-11-10T10:01:00Z", () => { yes(epLive(e, nf), "after 2am Pacific"); yes(!epLive(e, hulu), "Hulu is not on the table"); });
+  atTime("2026-11-11T08:01:00Z", () => yes(epLive(e, hulu), "end of the date, as before"));
+  atTime("2026-11-10T09:00:00Z", () => yes(!epLive({ e: 1, air: "2026-11-10", ts: "2026-11-10T20:00:00Z" }, nf), "a real time beats the table"));
+});
+/* ---------- calendar file and backup files ---------- */
+const unfold = (s) => s.replace(/\r\n /g, "");
+test("calendar: a timed episode is an instant in UTC, a date-only one is an all-day event, aired and watched ones are left out", () => {
+  atTime("2026-11-01T00:00:00Z", () => {
+    const sh = show({ id: 7, title: "Dune, Prophecy; Part 1", tz: "America/New_York", runtime: 50, seasons: [{ season: 2, eps: [
+      ep(1, { air: "2026-10-01", ts: "2026-10-01T01:00:00Z" }),                 // aired
+      ep(2, { air: "2026-11-10", ts: "2026-11-10T02:00:00Z", name: "A, B; C" }), // timed
+      ep(3, { air: "2026-11-17" }),                                             // date only
+      ep(4, { air: "2026-11-24" })] }], watched: { "2-4": 1 } });               // watched
+    const r = icsCalendar([sh], []), x = unfold(r.text);
+    eq(r.count, 2);
+    yes(/^BEGIN:VCALENDAR\r\nVERSION:2\.0\r\n/.test(r.text) && r.text.endsWith("END:VCALENDAR\r\n"), "wrapper");
+    yes(x.includes("DTSTART:20261110T020000Z") && x.includes("DTEND:20261110T025000Z"), "timed, 50 minute runtime");
+    yes(x.includes("DTSTART;VALUE=DATE:20261117") && x.includes("DTEND;VALUE=DATE:20261118"), "all day");
+    yes(x.includes("SUMMARY:Dune\\, Prophecy\\; Part 1 S02E02") && x.includes("DESCRIPTION:A\\, B\\; C"), "escaped");
+    yes(!x.includes("20261124") && !x.includes("20261001"), "watched and aired are not listed");
+    yes(!/[^\r]\n/.test(r.text), "every line break is CRLF");
+  });
+});
+test("calendar: no line is over 75 bytes, even in Hindi, and folding loses no text", () => {
+  atTime("2026-11-01T00:00:00Z", () => {
+    const title = "एक बहुत लंबा हिंदी शीर्षक जो एक पंक्ति में नहीं समाएगा और बार-बार मुड़ना चाहिए";
+    const r = icsCalendar([show({ title, seasons: [{ season: 1, eps: [ep(1, { air: "2026-12-01" })] }] })], []);
+    for (const line of r.text.split("\r\n")) yes(new TextEncoder().encode(line).length <= 75, "line too long: " + line.length);
+    yes(unfold(r.text).includes("SUMMARY:" + title + " S01E01"));
+  });
+});
+test("calendar: dropped shows, finished shows and past or watched films are not listed; a coming film is all-day", () => {
+  atTime("2026-11-01T00:00:00Z", () => {
+    const up = { season: 1, eps: [ep(1, { air: "2026-12-01" })] };
+    const r = icsCalendar([show({ seasons: [up], bucketOverride: "dropped" }), show({ id: 2, seasons: [live(3)] })],
+      [{ id: "mv-1", title: "Past", releaseDate: "2026-10-01" }, { id: "mv-2", title: "Seen", releaseDate: "2026-12-01", watched: true }, { id: "mv-3", title: "Soon", releaseDate: "2026-12-05" }]);
+    eq(r.count, 1);
+    yes(unfold(r.text).includes("SUMMARY:Soon (film release)") && r.text.includes("DTSTART;VALUE=DATE:20261205"));
+  });
+});
+test("calendar: a daily serial is capped, so the file stays usable", () => {
+  atTime("2026-11-01T00:00:00Z", () => eq(icsCalendar([show({ seasons: [{ season: 1, eps: Array.from({ length: 300 }, (_, i) => ep(i + 1, { air: "2027-01-01" })) }] })], []).count, 40));
+});
+test("backup file: a bad file is named, and only well-formed records get through", () => {
+  eq(parseBackup("not json").bad, "invalid");
+  eq(parseBackup('{"movies":[]}').bad, "notbackup");
+  eq(parseBackup("[]").bad, "notbackup");
+  const b = parseBackup(JSON.stringify({ shows: [{ id: 1, seasons: [] }, { id: 2 }, null, "x", { seasons: [] }], movies: [{ id: "mv-1" }, {}, 5],
+    deleted: { 9: 1700000000000, 8: "soon", 7: -1 } }));
+  eq(b.shows.map((s) => s.id), [1]); eq(b.movies.map((m) => m.id), ["mv-1"]); eq(b.deleted, { 9: 1700000000000 });
+  eq(parseBackup('{"shows":[]}').deleted, {});
+});
+test("backup file: merging the file in keeps a mark made here since the file was saved, and adds one made elsewhere", () => {
+  const here = show({ watched: { "1-1": T(50) }, wts: { "1-1": T(50) }, updatedAt: T(50) });
+  const file = show({ watched: { "1-2": T(10) }, wts: { "1-2": T(10) }, updatedAt: T(10) });
+  eq(Object.keys(mergeShow(here, file).watched).sort(), ["1-1", "1-2"]);
+});
 test("zone: a name that is not a zone falls back to the phone's own", () => { setTZ("Mars/Olympus"); eq(TZ_PREF, ""); setTZ("Asia/Kolkata"); eq(TZ_PREF, "Asia/Kolkata"); setTZ(""); });
 test("zone: an offset reads like UTC+5:30", () => { eq(tzOffsetLabel("Asia/Kolkata"), "UTC+5:30"); eq(tzOffsetLabel("Asia/Kathmandu"), "UTC+5:45"); });
 test("aired: 'Data wrong? Unlock' opens everything", () => {

@@ -353,6 +353,9 @@ const ACTIONS = {
   cleartoken: () => { ghToken = ""; gistId = ""; store("signal.token", ""); store("signal.gistid", ""); toast(t("toast_disconnected")); render(); },
   pullnow: () => pullCloud(false),
   exportdb: () => { exportDb(); render(); },
+  sharedb: () => shareDb(),
+  calall: () => exportIcs(db, movies),
+  calshow: (v) => { const sh = db.find((x) => x.id === +v); if (sh) { exportIcs([sh], []); render(); } },
   importbtn: () => $("importFile").click(),
   ttpick: (v) => $(v === "movies" ? "mvFile" : "ttFile").click(),
   clearlegacy: async () => { try { for (const k of ["signal.db", "signal.movies", "signal.del"]) localStorage.removeItem(k); } catch (e) {}

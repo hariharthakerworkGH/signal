@@ -395,6 +395,7 @@ function menuShow(sh) {
       : `${cat === "waiting" ? row(`data-bucket="${sh.id}:done"`, t("m_to_done")) : cat === "done" ? row(`data-bucket="${sh.id}:active"`, t("m_to_active")) : ""}${row(`data-bucket="${sh.id}:dropped"`, t("m_drop"), t("m_drop_sub"))}`}
     ${!up && !sh.manual ? row(`data-unlock="${sh.id}"`, t(sh.unlockAll ? "m_relock" : "m_unlock")) : ""}
     ${sh.manual ? row(`data-manadd="${sh.id}"`, t("m_add_eps")) : ""}
+    ${icsCalendar([sh], []).count ? row(`data-calshow="${sh.id}"`, t("m_cal"), t("m_cal_sub")) : ""}
     <a class="mrow lk" href="https://www.google.com/search?q=${gq}" target="_blank" rel="noopener"><span>${t("m_google")}</span><span class="s">${t("m_opens")}</span></a>
     <a class="mrow lk" href="${imdbUrl}" target="_blank" rel="noopener"><span>${t("m_imdb")}</span><span class="s">${t("m_opens")}</span></a>
     ${confirmDel === sh.id ? `<div class="confirm"><p class="q">${esc(t("m_remove_q", { title: sh.title }))}</p><div class="btns"><button class="btn danger" data-delyes="${sh.id}">${t("yes_remove")}</button><button class="btn" data-delno="1">${t("keep_it")}</button></div></div>`
@@ -525,7 +526,8 @@ function sheetSettings() {
       <div class="btns"><button class="btn primary" data-savetoken="1">${t("set_connect")}</button>${ghToken ? `<button class="btn" data-pullnow="1">${t("set_sync_now")}</button><button class="btn danger" data-cleartoken="1">${t("set_disconnect")}</button>` : ""}</div>
       <details class="how"><summary>${t("set_how")}</summary><p>${t("set_how_body")}</p></details></div></div>
     <div class="group"><h3>${t("set_data")}</h3><div class="card"><p>${t("set_data_note")}${lastExp ? " " + t("set_last_export", { ago: agoLabel(lastExp) }) : ""}</p>
-      <div class="btns"><button class="btn" data-exportdb="1">${t("set_export")}</button><button class="btn" data-importbtn="1">${t("set_import")}</button></div>
+      <div class="btns"><button class="btn" data-exportdb="1">${t("set_export")}</button>${canShareFile() ? `<button class="btn" data-sharedb="1">${t("set_share")}</button>` : ""}<button class="btn" data-importbtn="1">${t("set_import")}</button></div>
+      <div class="btns"><button class="btn" data-calall="1">${t("set_cal")}</button></div>
       <div class="btns"><button class="btn" data-ttpick="shows">${t("set_tt_shows")}</button><button class="btn" data-ttpick="movies">${t("set_tt_movies")}</button></div></div></div>
     <div class="group"><h3>${t("set_storage")}</h3><div class="card"><p class="meter">${esc(storageInfo.text)}</p>
       ${storageInfo.legacy > 1000 ? `<button class="btn sm self-start" data-clearlegacy="1">${t("set_clear_old", { mb: (storageInfo.legacy / 1048576).toFixed(1) })}</button><p>${t("set_clear_old_help")}</p>` : ""}</div></div>
