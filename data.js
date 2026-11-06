@@ -125,7 +125,11 @@ async function loadAll() {
   // Newest first. addedAt is set on every add from v44 on; older records fall
   // back to updatedAt, which is the best guess their data allows.
   db.sort((a, b) => (b.addedAt || b.updatedAt || 0) - (a.addedAt || a.updatedAt || 0));
+  cleanLibrary();
 }
+/* Anything that arrives from outside this session (the saved library, a sync, a
+   backup) may hold the fake air times older versions kept; drop them. */
+function cleanLibrary() { for (const s of db) if (stripFakeTimes(s)) dirtyShows.add(s.id); }
 
 /* ================= preferences ================= */
 const REGION = (() => { try {
@@ -183,6 +187,7 @@ function mergeCloud(remoteShows, remoteDel) {
   db = Object.values(out)
     .filter((s) => !(delMap[s.id] && delMap[s.id] > (s.updatedAt || 0)))
     .sort((a, b) => (b.addedAt || b.updatedAt || 0) - (a.addedAt || a.updatedAt || 0));
+  cleanLibrary();
   return before !== sig(db);
 }
 async function pullCloud(quiet) {
@@ -249,8 +254,7 @@ async function fetchFullShow(showId, existingWatched) {
   const homeOn = (det.webChannel && det.webChannel.name) || (det.network && det.network.name) || null;
   const firstAir = det.premiered || null;
   const tz = ((det.network && det.network.country) || (det.webChannel && det.webChannel.country) || {}).timezone || null;
-  const airKind = det.webChannel ? "web" : "net";
-  const hasAired = seasons.some((s) => s.eps.some((e) => epLive(e, tz, airKind)));
+  const hasAired = seasons.some((s) => s.eps.some((e) => epLive(e, tz)));
   return {
     id: det.id, title: det.name,
     year: firstAir ? +firstAir.slice(0, 4) : null,
@@ -262,7 +266,8 @@ async function fetchFullShow(showId, existingWatched) {
     watchOn: homeOn ? [homeOn] : [],
     firstAir,
     upcoming: !hasAired,
-    tz, airKind,
+    tz,
+    tv: 2,   // its air times were read properly (see stripFakeTimes in core.js)
     nextEp: (nx && (nx.airstamp || nx.airdate)) ? { s: nx.season, e: nx.number,
       ts: nx.airtime ? (nx.airstamp || null) : null,
       date: (nx.airtime && nx.airstamp) ? localDate(nx.airstamp) : nx.airdate } : null,
@@ -503,9 +508,15 @@ async function syncAll() {
    can never succeed (they used to cost 600ms each on every open). */
 const STALE_MS = 12 * 3600 * 1000, WARN_MS = 3 * 864e5;
 const staleShows = () => db.filter((s) => syncable(s) && !stuck(s) && (!s.lastSynced || Date.now() - s.lastSynced > WARN_MS));
+/* A show about to air, or just aired, is worth a fresh look every couple of hours; a
+   show whose times were saved by an older version is refreshed once to get them back. */
+const HOT_MS = 2 * 3600 * 1000;
+const hotShow = (s) => { const si = soonInfo(s); return !!si && si.ms - Date.now() < 2 * 864e5; };
+const wantsRefresh = (s) => !s.lastSynced || needsTimeFix(s) || Date.now() - s.lastSynced > STALE_MS
+  || (Date.now() - s.lastSynced > HOT_MS && hotShow(s));
 async function refreshStale() {
   if (!navigator.onLine) return;
-  await refreshShows(db.filter((s) => syncable(s) && !stuck(s) && (!s.lastSynced || Date.now() - s.lastSynced > STALE_MS)), false);
+  await refreshShows(db.filter((s) => syncable(s) && !stuck(s) && wantsRefresh(s)), false);
 }
 
 /* ================= export and import ================= */
@@ -524,7 +535,7 @@ function importDb(file) {
       const j = JSON.parse(r.result);
       if (!Array.isArray(j.shows)) { toast(t("err_not_backup")); return; }
       const shows = j.shows.filter((s) => s && typeof s === "object" && s.id != null && Array.isArray(s.seasons));
-      db = shows; db.forEach((x) => touch(x));
+      db = shows; cleanLibrary(); db.forEach((x) => touch(x));
       if (Array.isArray(j.movies)) { movies = j.movies.filter((m) => m && typeof m === "object" && m.id != null); movies.forEach((x) => touchMovie(x)); }
       saveAll().then(() => { schedulePush(); render(); toast(t("toast_imported", { shows: db.length, movies: movies.length })); });
     } catch (e) { toast(t("err_import_invalid")); }
@@ -785,7 +796,7 @@ async function ttImport(sel, onStep) {
       } else merged++;
       let hit = 0;
       for (const seas of target.seasons) for (const ep of seas.eps) {
-        if (it.eps[seas.season + "-" + ep.e] && epLive(ep, target.tz, target.airKind)) { setWatched(target, epK(seas.season, ep.e), true, 1); hit++; }
+        if (it.eps[seas.season + "-" + ep.e] && epLive(ep, target.tz)) { setWatched(target, epK(seas.season, ep.e), true, 1); hit++; }
       }
       if (hit === 0 && !db.find((x) => x.id === found.id && x !== target)) skipped.push({ n: it.name, code: "nomatch", count: Object.keys(it.eps).length });
       touch(target); saveLocal();

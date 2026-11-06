@@ -10,12 +10,36 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "4.0";
-const BUILD = 50;
+const APP_VERSION = "4.1";
+const BUILD = 51;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
-function todayISO() { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+
+/* ================= where the viewer is =================
+   Every clock time and every "today" is read in ONE zone: the one chosen in
+   Settings, else the phone's own. An air time is an exact moment, so it is only
+   ever converted for display, never guessed at. */
+let TZ_PREF = "";
+const isZone = (z) => { try { return !!z && !!new Intl.DateTimeFormat("en", { timeZone: z }); } catch (e) { return false; } };
+function setTZ(z) { TZ_PREF = isZone(z) ? z : ""; }
+function deviceTZ() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; } }
+const viewTZ = () => TZ_PREF || deviceTZ() || undefined;
+const YMD_DTF = new Map();
+function ymd(ms) {
+  const tz = viewTZ() || "";
+  let f = YMD_DTF.get(tz);
+  if (!f) { f = new Intl.DateTimeFormat("en-US", { timeZone: tz || undefined, year: "numeric", month: "2-digit", day: "2-digit" }); YMD_DTF.set(tz, f); }
+  const p = {}; for (const x of f.formatToParts(ms)) p[x.type] = x.value;
+  return p.year + "-" + p.month + "-" + p.day;
+}
+function todayISO() { return ymd(Date.now()); }
+/* "UTC+5:30" for a zone, so a place name and its offset can be read together. */
+function tzOffsetLabel(tz) {
+  const m = tzOffsetMinutes(tz, new Date()); if (m === null) return "";
+  const a = Math.abs(m);
+  return "UTC" + (m < 0 ? "-" : "+") + Math.floor(a / 60) + (a % 60 ? ":" + pad(a % 60) : "");
+}
 const epK = (s, e) => s + "-" + e;
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function plain(x) {
@@ -78,7 +102,7 @@ function fmtDay(iso) {   // heading over a day's episodes
   const d = new Date(iso + "T00:00:00").toLocaleDateString(loc(), { weekday: "long", day: "numeric", month: "short" });
   return n !== null && n >= 0 && n <= 1 ? cap(rtf.format(n, "day")) + " · " + d : d;
 }
-function fmtTime(ts) { return new Date(ts).toLocaleTimeString(loc(), { hour: "numeric", minute: "2-digit" }); }
+function fmtTime(ts) { return new Date(ts).toLocaleTimeString(loc(), { hour: "numeric", minute: "2-digit", timeZone: viewTZ() }); }
 function agoLabel(ts) {
   if (!ts) return t("never");
   const h = Math.floor((Date.now() - ts) / 36e5);
@@ -114,20 +138,43 @@ function localDayMs(dateStr, tz, atEnd) {
   if (off === null) off = -7 * 60; // no timezone on record: assume US Pacific, the latest of the big ones, so nothing unlocks early
   return naive - off * 60000;
 }
-// When TVmaze has no air time we infer from the kind of service:
-// streaming drops at the start of its release date, broadcast airs in the evening.
-function airMoment(ep, tz, kind) { return localDayMs(ep.air, tz, kind === "net"); }
-function epLive(ep, tz, kind) {
+// With no clock time all TVmaze knows is the DATE, in the show's own zone. The episode
+// could land at any hour of it, so it unlocks when that date has ended there (US Pacific
+// when no zone is on record): a few hours late is better than saying it is out before it is.
+function airMoment(ep, tz) { return localDayMs(ep.air, tz, true); }
+function epLive(ep, tz) {
   if (ep.ts) return new Date(ep.ts).getTime() <= Date.now();
   if (!ep.air) return false;
-  return Date.now() >= airMoment(ep, tz, kind);
+  return Date.now() >= airMoment(ep, tz);
 }
-function aired(sh, ep) { return (sh && sh.unlockAll) ? true : epLive(ep, sh && sh.tz, sh && sh.airKind); }
+function aired(sh, ep) { return (sh && sh.unlockAll) ? true : epLive(ep, sh && sh.tz); }
 function isUp(sh) {
   if (sh.unlockAll) return false; // the user has declared the air dates wrong; treat the grid as live
-  return !(sh.seasons && sh.seasons.some((se) => se.eps.some((ep) => epLive(ep, sh.tz, sh.airKind))));
+  return !(sh.seasons && sh.seasons.some((se) => se.eps.some((ep) => epLive(ep, sh.tz))));
 }
-function localDate(ts) { const d = new Date(ts); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+function localDate(ts) { return ymd(new Date(ts).getTime()); }
+
+/* TVmaze sends noon UTC as the "time" of an episode whose time it does not know.
+   Before 4.1 that was kept as a real moment, so such an episode unlocked hours early
+   and showed a time nobody announced. A show saved by 4.1 or later carries tv:2 (its
+   times were read properly); for any other show noon UTC is not believed, and the
+   show is refreshed on opening to get the true time back. */
+const FAKE_NOON = /T12:00:00(?:\.0+)?(?:Z|\+00:00)$/;
+function stripFakeTimes(sh) {
+  if (!sh || sh.tv) return false;
+  let changed = false;
+  for (const se of sh.seasons || []) for (const ep of se.eps || []) if (ep.ts && FAKE_NOON.test(ep.ts)) { ep.ts = null; changed = true; }
+  const nx = sh.nextEp;
+  if (nx && nx.ts && FAKE_NOON.test(nx.ts)) { nx.date = nx.ts.slice(0, 10); nx.ts = null; changed = true; }   // the fake time is the air date at noon UTC
+  return changed;
+}
+/* Only a show with something recent or coming can be wrong on screen; an old finished one cannot. */
+function needsTimeFix(sh) {
+  if (!sh || sh.tv || sh.manual) return false;
+  if (sh.nextEp) return true;
+  const from = ymd(Date.now() - 3 * 864e5);
+  return (sh.seasons || []).some((se) => se.eps.some((ep) => ep.air && ep.air >= from));
+}
 function epDate(ep) { return ep.ts ? localDate(ep.ts) : (ep.air || null); }
 
 /* ================= what a show is ================= */
@@ -151,7 +198,7 @@ function lastWatched(sh) {
 function lastAiredMs(sh) {
   let m = 0;
   for (const se of sh.seasons) for (const ep of se.eps) {
-    if (!epLive(ep, sh.tz, sh.airKind)) continue;
+    if (!epLive(ep, sh.tz)) continue;
     const ts = ep.ts ? new Date(ep.ts).getTime() : (ep.air ? new Date(ep.air + "T00:00:00").getTime() : 0);
     if (ts > m) m = ts;
   }
@@ -168,9 +215,13 @@ function soonInfo(sh) {
     for (const se of (sh.seasons || [])) { for (const ep of se.eps) { first = ep; break; } if (first) break; }
     if (first && (first.ts || first.air)) { ts = first.ts || null; dateStr = first.ts ? localDate(first.ts) : first.air; } // a timestamp wins: same rule as epDate()
     else dateStr = sh.firstAir;
-  } else if (sh.nextEp) { ts = sh.nextEp.ts; dateStr = sh.nextEp.date; code = codeOf(sh.nextEp.s, sh.nextEp.e); }
+  } else if (sh.nextEp) {
+    // With a real air time the day is the viewer's day for that moment (8pm in New York is already tomorrow in Delhi),
+    // so the row's date and the time beside it can never disagree. Without a time it is the date TVmaze gave.
+    ts = sh.nextEp.ts; dateStr = ts ? localDate(ts) : sh.nextEp.date; code = codeOf(sh.nextEp.s, sh.nextEp.e);
+  }
   if (!ts && !dateStr) return null;
-  const ms = ts ? new Date(ts).getTime() : localDayMs(dateStr, sh.tz, sh.airKind === "net");
+  const ms = ts ? new Date(ts).getTime() : localDayMs(dateStr, sh.tz, true);
   if (ms < now - 3600e3) return null;
   const n = daysAway(dateStr || localDate(ts));
   if (n > 99) return null;
@@ -209,7 +260,10 @@ function upNextItems(shows, weekMs) {
 /* What is dated in the next stretch, soonest first. */
 function scheduleItems(shows, withinMs) {
   return shows.filter((x) => !dropped(x)).map((sh) => ({ sh, si: soonInfo(sh) }))
-    .filter((x) => x.si && (withinMs == null || x.si.ms - Date.now() <= withinMs)).sort((a, b) => a.si.ms - b.si.ms);
+    .filter((x) => x.si && (withinMs == null || x.si.ms - Date.now() <= withinMs))
+    // By the day shown on the row first (a date-only row opens at the END of its day in the show's zone,
+    // which can be a few hours into the next day for the viewer), then by the moment inside that day.
+    .sort((a, b) => (a.si.dateStr || "").localeCompare(b.si.dateStr || "") || a.si.ms - b.si.ms);
 }
 function libraryStats(shows) {
   let eps = 0, mins = 0, done = 0, watching = 0, backlog = 0, today = 0; const td = todayISO();

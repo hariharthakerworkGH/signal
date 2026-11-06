@@ -90,6 +90,41 @@ p, .help { text-wrap:pretty; }
 .ico.sm { width:16px; height:16px; }
 .btn .ico { width:16px; height:16px; }
 
+/* ---------- splash ----------
+   What the app is for, in one second: a season's episodes tick off one by one (the same
+   rounded squares the lists use for "watched"), close up into the solid square of the app
+   icon, and the frame sends out a ripple, the signal. It sits over everything from the first
+   paint, so opening the app (and any update it picks up) never shows a half-built screen. */
+#splash { position:fixed; inset:0; z-index:300; display:grid; align-content:center; justify-items:center; gap:22px;
+  background:var(--bg); transition:opacity .28s var(--ease), transform .28s var(--ease); }
+#splash.out { opacity:0; transform:scale(1.03); pointer-events:none; }
+.sp-mark { position:relative; width:132px; height:132px; }
+.sp-svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; fill:none; stroke:var(--amber); stroke-width:3; }
+.sp-frame { stroke-dasharray:1; stroke-dashoffset:1; animation:sp-draw .46s var(--ease) forwards; }
+.sp-ripple { opacity:0; transform-box:fill-box; transform-origin:center; animation:sp-ripple .62s .84s cubic-bezier(.2,.6,.3,1) forwards; }
+.sp-grid { position:absolute; inset:31px; display:grid; grid-template:repeat(3,1fr) / repeat(3,1fr); gap:8px;
+  animation:sp-merge .26s .66s var(--ease) forwards; }
+.sp-grid i { border-radius:5px; box-shadow:inset 0 0 0 1.5px var(--edge); animation:sp-tick .2s calc(.16s + var(--i) * 45ms) var(--ease) forwards; }
+.sp-grid i:nth-child(1) { --i:0; } .sp-grid i:nth-child(2) { --i:1; } .sp-grid i:nth-child(3) { --i:2; }
+.sp-grid i:nth-child(4) { --i:3; } .sp-grid i:nth-child(5) { --i:4; } .sp-grid i:nth-child(6) { --i:5; }
+.sp-grid i:nth-child(7) { --i:6; } .sp-grid i:nth-child(8) { --i:7; } .sp-grid i:nth-child(9) { --i:8; }
+.sp-core { position:absolute; inset:31px; border-radius:14px; background:var(--amber); opacity:0; animation:sp-core .14s .86s linear forwards; }
+.sp-word { font-size:20px; font-weight:600; letter-spacing:.02em; color:var(--text); opacity:0; transform:translateY(6px);
+  animation:sp-word .44s .8s var(--ease) forwards; }
+@keyframes sp-draw { to { stroke-dashoffset:0; } }
+@keyframes sp-tick { 50% { transform:scale(.8); } 100% { background:var(--amber); box-shadow:inset 0 0 0 1.5px var(--amber); transform:scale(1); } }
+@keyframes sp-merge { 80% { gap:0; opacity:1; } 100% { gap:0; opacity:0; } }
+@keyframes sp-core { to { opacity:1; } }
+@keyframes sp-ripple { 0% { opacity:.55; transform:scale(1); } 100% { opacity:0; transform:scale(1.45); } }
+@keyframes sp-word { to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion:reduce) {
+  #splash { transition:opacity .15s; }
+  #splash.out { transform:none; }
+  .sp-frame { animation:none; stroke-dashoffset:0; }
+  .sp-grid, .sp-ripple { display:none; }
+  .sp-core, .sp-word { animation:none; opacity:1; transform:none; }
+}
+
 /* ---------- shell ---------- */
 #app { max-width:640px; margin:0 auto; padding:0 16px calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px); }
 #view { outline:none; }
@@ -183,6 +218,8 @@ select.field { padding-inline:10px 6px; }
 .sec h2 { font-size:15px; font-weight:600; }
 .sec .meta { font-size:13px; color:var(--faint); }
 .sec .more { color:var(--at); font-size:13px; padding:4px 0; }
+.idle { display:none; }
+.note { font-size:12px; line-height:1.5; color:var(--faint); margin:8px 0 0; }
 .subline { font-size:12px; color:var(--faint); margin-block-end:2px; }
 .empty { display:grid; justify-items:center; gap:10px; text-align:center; padding:28px 20px; margin-block-start:16px; background:var(--card); border-radius:var(--r-l); border:1px solid var(--hair); }
 .empty h3 { font-size:15px; font-weight:600; }
@@ -438,6 +475,9 @@ input[type="date"].field { width:auto; }
   #sheet.pane { inset-inline-start:calc(var(--rail) + var(--col)); }
   #sheet.pane .scrim { display:none; }
   #sheet.pane .panel { animation:fade .18s both; border-radius:0; }
+  /* Nothing open beside the list: say what the empty space is for instead of leaving it blank. */
+  #sheet:empty + .idle { display:grid; position:fixed; inset-block:0; inset-inline:calc(var(--rail) + var(--col)) 0; place-items:center;
+    padding:24px; text-align:center; font-size:13px; color:var(--faint); pointer-events:none; }
   .tp-top { height:150px; }
   .tp-head { padding-inline:28px; }
   .tp-head .pwrap { width:96px; }

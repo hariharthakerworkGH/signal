@@ -11,9 +11,19 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Signal</title>
-<link rel="stylesheet" href="style.css">
+<!-- ?v= is the build number: a new build is a new address, so it is never served from an old copy (tests.js checks). -->
+<link rel="stylesheet" href="style.css?v=51">
 </head>
 <body>
+<!-- Shown from the first paint until the app is drawn and any update has been picked up. app.js removes it. -->
+<div id="splash" aria-hidden="true">
+  <div class="sp-mark">
+    <svg class="sp-svg" viewBox="0 0 132 132" focusable="false"><rect class="sp-ripple" x="1.5" y="1.5" width="129" height="129" rx="34" pathLength="1"/><rect class="sp-frame" x="1.5" y="1.5" width="129" height="129" rx="34" pathLength="1"/></svg>
+    <span class="sp-grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    <span class="sp-core"></span>
+  </div>
+  <b class="sp-word">Signal</b>
+</div>
 <a class="skip" href="#view" data-i18n="skip">Skip to content</a>
 
 <div id="app">
@@ -24,6 +34,7 @@
 <nav class="tabbar" id="tabbar" data-i18n-aria="nav_aria" aria-label="Main"></nav>
 
 <div id="sheet"></div>
+<p class="idle" aria-hidden="true" data-i18n="pane_idle"></p>
 <div id="modal" hidden></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -33,10 +44,12 @@
 <input type="file" id="mvFile" accept=".csv" class="hidden" tabindex="-1">
 
 <!-- One scope, loaded in order: strings, pure logic, data, screens, wiring. -->
-<script src="i18n.js"></script>
-<script src="core.js"></script>
-<script src="data.js"></script>
-<script src="ui.js"></script>
-<script src="app.js"></script>
+<script src="i18n.js?v=51"></script>
+<script src="core.js?v=51"></script>
+<script src="data.js?v=51"></script>
+<script src="ui.js?v=51"></script>
+<script src="app.js?v=51"></script>
+<!-- If the app cannot start (a script failed to load) the splash must not hide that for ever. -->
+<script>setTimeout(function () { var s = document.getElementById("splash"); if (s) s.remove(); }, 10000);</script>
 </body>
 </html>

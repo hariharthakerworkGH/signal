@@ -383,6 +383,7 @@ document.addEventListener("change", (ev) => {
   if (el.id === "sortSel") { showSort = el.value; store("signal.sort", showSort); render(); }
   else if (el.id === "movSortSel") { movSort = el.value; store("signal.movsort", movSort); render(); }
   else if (el.id === "langSel") { setLang(el.value); store("signal.lang", LANG); applyStatic(); render(); }
+  else if (el.id === "tzSel") { setTZ(el.value); store("signal.tz", TZ_PREF); render(); }
   else if (modalCtl && modalCtl.onChange) modalCtl.onChange(el);
 });
 document.addEventListener("keydown", (ev) => {
@@ -413,34 +414,66 @@ $("mvFile").onchange = (e) => {
 /* ================= starting up ================= */
 /* Offline support. Until v44 the app deleted every service worker it found,
    so it could not open at all without a connection. */
+/* Update on open. A new build is a new worker (sw.js changes with BUILD). It takes over at once
+   (skipWaiting + claim), and the page reloads itself so the new code runs now, not on the open after
+   next. Marks are saved first. If you are in the middle of typing, it waits until you leave the app. */
+let swWantsReload = false, swReloading = false;
+const busyTyping = () => modalOpen || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || "");
+function reloadForUpdate() {
+  if (swReloading) return;
+  // Reloaded in the last 20 seconds and still changing? Something is off: stay on this copy, never loop.
+  try {
+    const last = +sessionStorage.getItem("signal.swreload") || 0;
+    if (Date.now() - last < 20000) return;
+    sessionStorage.setItem("signal.swreload", String(Date.now()));
+  } catch (e) { /* no sessionStorage: reload once anyway */ }
+  swReloading = true;
+  if (pushTimer) pushCloud();
+  Promise.resolve(saveLocal()).catch(() => {}).then(() => location.reload());
+}
 function registerSW() {
-  if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("sw.js").then((reg) => {
-    reg.addEventListener("updatefound", () => {
-      const w = reg.installing; if (!w) return;
-      w.addEventListener("statechange", () => {
-        // Cache-first means the tab you are in keeps running the old build.
-        // Say so, rather than leaving you wondering why a change is missing.
-        if (w.state === "installed" && navigator.serviceWorker.controller) toast(t("toast_new_version"), 8000);
-      });
-    });
+  if (!("serviceWorker" in navigator)) return Promise.resolve();
+  const hadWorker = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadWorker) return;   // the very first install replaces nothing
+    if (!booted || !busyTyping()) reloadForUpdate();
+    else { swWantsReload = true; toast(t("toast_new_version"), 8000); }
+  });
+  return navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+    const look = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") look(); });
+    return look().then(() => (reg.installing || reg.waiting) && hadWorker ? new Promise((r) => setTimeout(r, 2500)) : null);
   }).catch(() => {});
+}
+/* The splash stays until the app is drawn and any update has had its say, and for at least as long
+   as its animation (a moment only, if you asked the device for less motion). */
+function hideSplash() {
+  const s = $("splash"); if (!s) return;
+  const min = window.matchMedia("(prefers-reduced-motion:reduce)").matches ? 400 : 1250;
+  setTimeout(() => { s.classList.add("out"); setTimeout(() => s.remove(), 320); }, Math.max(0, min - performance.now()));
 }
 window.addEventListener("online", () => toast(t("toast_online")));
 window.addEventListener("offline", () => toast(t("toast_offline")));
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") pullCloud(true);
-  else { if (pushTimer) pushCloud(); saveLocal(); }   // flush anything still pending before the tab is frozen
+  else {   // flush anything still pending before the tab is frozen
+    if (pushTimer) pushCloud();
+    saveLocal();
+    if (swWantsReload) reloadForUpdate();
+  }
 });
 
 (async () => {
+  setTZ(store("signal.tz") || "");
   setLang(pickLang(store("signal.lang"), navigator.languages));
   applyStatic();
+  const swDone = registerSW();
   await loadAll();
   booted = true;
   render();
-  registerSW();
   tabEnter(tab);
+  await Promise.race([swDone, new Promise((r) => setTimeout(r, 2500))]);
+  hideSplash();
   await pullCloud(true);
   await refreshStale();
 })();

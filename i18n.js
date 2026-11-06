@@ -224,6 +224,11 @@ const STRINGS = {
 
     set_title: "Settings",
     set_lang: "Language",
+    pane_idle: "Pick a show or film to see its episodes here.",
+    set_tz: "Time zone",
+    set_tz_auto: "This device ({zone})",
+    set_tz_help: "Air times are shown in this zone. Automatic follows your phone, also when you travel.",
+    sched_tz_note: "Times are in {zone}. A row with no time has none announced; it opens at the end of that day.",
     set_services: "Streaming services",
     set_services_help: "Discover lists new premieres on the services you tick.",
     set_services_all: "Show all {n} services",
@@ -345,7 +350,7 @@ const STRINGS = {
     toast_mvtt_wrong: "Wrong file. Use tracking-prod-records.csv, the larger v1 file, from the TV Time export.",
     toast_mvtt_none: "No movie records in that file.",
     toast_mvtt_done: { one: "Imported {n} movie ({dup} already there).", other: "Imported {n} movies ({dup} already there)." },
-    toast_new_version: "A new version downloaded. Close and reopen Signal to use it.",
+    toast_new_version: "Signal has updated. The new version shows when you finish here.",
     toast_online: "Back online.",
     toast_offline: "You are offline. Your saved data is safe and updates are paused.",
 
@@ -596,6 +601,11 @@ const STRINGS = {
 
     set_title: "सेटिंग्स",
     set_lang: "भाषा",
+    pane_idle: "एपिसोड यहाँ देखने के लिए कोई शो या फ़िल्म चुनें।",
+    set_tz: "समय क्षेत्र",
+    set_tz_auto: "यह डिवाइस ({zone})",
+    set_tz_help: "एपिसोड का प्रसारण समय इसी समय क्षेत्र में दिखता है। ऑटोमैटिक चुनने पर यह आपके फ़ोन के साथ चलता है, यात्रा में भी।",
+    sched_tz_note: "समय {zone} में हैं। जिस पंक्ति में समय नहीं है, उसका समय घोषित नहीं हुआ है; वह उस दिन के अंत में खुलता है।",
     set_services: "स्ट्रीमिंग सेवाएं",
     set_services_help: "खोजें उन सेवाओं पर नए प्रीमियर दिखाता है जिन्हें आप चुनते हैं।",
     set_services_all: "सभी {n} सेवाएं दिखाएं",
@@ -717,7 +727,7 @@ const STRINGS = {
     toast_mvtt_wrong: "गलत फ़ाइल। TV Time एक्सपोर्ट की बड़ी v1 फ़ाइल tracking-prod-records.csv इस्तेमाल करें।",
     toast_mvtt_none: "उस फ़ाइल में फ़िल्मों का कोई रिकॉर्ड नहीं।",
     toast_mvtt_done: { one: "{n} फ़िल्म लाई गई ({dup} पहले से थीं)।", other: "{n} फ़िल्में लाई गईं ({dup} पहले से थीं)।" },
-    toast_new_version: "नया वर्ज़न डाउनलोड हुआ। इसे इस्तेमाल करने के लिए Signal बंद करके फिर खोलें।",
+    toast_new_version: "Signal अपडेट हो गया। यहाँ का काम पूरा होते ही नया वर्ज़न दिखेगा।",
     toast_online: "फिर ऑनलाइन।",
     toast_offline: "आप ऑफ़लाइन हैं। आपका सहेजा डेटा सुरक्षित है, अपडेट रुके हैं।",
 

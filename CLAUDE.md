@@ -63,11 +63,18 @@ action except those in `KEEP_MENU`.
 - A `watched` value of `1` means a bulk or imported mark; a timestamp means a
   single deliberate one. Only the latter raises the download prompt and counts
   as "what I was watching lately", so the merge keeps whichever is more specific.
-- **Aired** is decided by `epLive()`: an exact `airstamp` when TVmaze has one,
-  otherwise the air date read in the show's own timezone - start of day for a
-  streaming drop, end of day for a broadcast network. With no timezone on
-  record it assumes US Pacific, the latest of the big ones, so nothing unlocks
-  early.
+- **Aired** is decided by `epLive()`: an exact `ts` when TVmaze gave a real
+  clock time, otherwise the END of the air date in the show's own timezone (US
+  Pacific when none is on record), for every kind of show, so nothing unlocks
+  early. TVmaze fills an unknown time with a fake `<date>T12:00:00+00:00`; that
+  is never believed. Shows saved by 4.1 or later carry `tv: 2` (times already
+  read the new way); on any other show `stripFakeTimes()` drops a noon-UTC time
+  and `needsTimeFix()` makes it refresh when opened.
+- **The viewer's zone.** Every clock time, "today" and the day a schedule row
+  sits under is read in `viewTZ()`: the zone chosen in Settings (`TZ_PREF`,
+  stored as `signal.tz`), else the device's. No location is asked for or sent;
+  the zone name is all that is needed. A row's day is the viewer's day for its
+  air time, so the date and the time beside it can never disagree.
 - **Buckets** come from `catOf()`, never stored: WATCHING (aired episodes left
   to watch), UP TO DATE (current, or a premiere still ahead), DONE (finished,
   ended, or nothing aired in 18 months). `bucketOverride` is the user's manual
@@ -89,6 +96,20 @@ action except those in `KEEP_MENU`.
 - A film's poster and article are filled in the background and must NOT change
   its `updatedAt`: a cosmetic fill would otherwise beat a watched mark made on
   another device.
+
+## Updating, and the splash
+
+The app updates the moment it is opened; nobody has to close and reopen it.
+`index.html` is fetched fresh (`no-cache`, three seconds' patience, then the saved
+copy), it names each script as `?v=<BUILD>`, and a new `sw.js` takes over at once
+(`skipWaiting` + `clients.claim`). `registerSW()` in `app.js` checks for a new
+worker at start and every time the app becomes visible; on `controllerchange` it
+saves the library, then reloads. It waits if a dialog or a field is in use and
+reloads when the app is left, and it never reloads twice within 20 seconds. The
+splash (`#splash`, drawn from tokens, about 1.25 s, a moment under reduced motion)
+covers the start and any update; an inline script removes it after 10 s if the
+app cannot start. The first open after 4.0 still needs one extra open, because the
+4.0 worker has no reload.
 
 ## Storage
 
@@ -207,13 +228,13 @@ once, one banner at a time. Comments explain why, in plain English.
 There is no git on the owner's machine. Node is at `C:\Program Files\nodejs`
 (not on the bash PATH); Python is `py`.
 
-1. Serve the folder (`py -m http.server`) and open it. The service worker is
-   cache-first, so after a release the first open still shows the old version and
-   the next one the new. Clear the cache and unregister it before re-testing. In the
-   desktop app's browser pane a service worker does not register on a locally
-   served page (the console error is expected), and the pane caches scripts across
-   reloads (fetch each file with `cache: "reload"` first); verify offline behaviour
-   on the live site.
+1. Serve the folder (`py -m http.server`) and open it. The scripts and stylesheet
+   are asked for as `name?v=<BUILD>` and the service worker answers those from its
+   cache, so while testing without a version bump you MUST unregister the worker
+   and delete its caches before each reload, or you keep seeing the old file. The
+   desktop app's browser pane does register a worker on a local page; an update
+   can be proved end to end by serving a copy, bumping BUILD in the copy and
+   calling `registration.update()`.
 2. Open `tests.html`, or run `tests.js` under Node (load `i18n.js`, `core.js`,
    `tests.js` in one `vm` context and call `runAll`). They never touch a real
    library. Anything that touches marks, sync or time gets a test, and a new test
@@ -227,9 +248,12 @@ There is no git on the owner's machine. Node is at `C:\Program Files\nodejs`
    that touches marks or sync is checked against a copy of a real backup first.
 4. Versions on screen read like an app's: `4.0`, `4.1` for features, `4.0.1` for a
    fix, `5.0` for a rebuild (`APP_VERSION` in core.js). Every release also raises
-   the hidden `BUILD` counter by one, with `CACHE_NAME` in sw.js (`signal-v<BUILD>`).
-5. `APP_SHELL` in sw.js must list every file the page loads (`tests.html` checks it).
-   One typo and `addAll()` rejects: nothing is cached, silently.
+   the hidden `BUILD` counter by one in THREE places that `tests.js` keeps equal:
+   `BUILD` in core.js, `BUILD` in sw.js (`CACHE_NAME` is `signal-v<BUILD>`), and
+   every `?v=<BUILD>` in index.html. Forget one and the update never reaches anyone.
+5. `APP_SHELL` in sw.js must list every file the page loads, spelled as the page
+   asks for it (`style.css?v=<BUILD>`; `tests.html` checks it). One typo and
+   `addAll()` rejects: nothing is cached, silently.
 6. Copy the whole app to `signal-versions/<version>` so any version can be
    restored, and verify the copy in a separate command.
 7. Never ask for the owner's GitHub token. To debug, ask for an exported backup

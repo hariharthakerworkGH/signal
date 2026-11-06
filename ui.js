@@ -154,7 +154,7 @@ function scheduleHTML() {
       <span class="mid"><b class="clip">${esc(sh.title)}</b><span class="tag">${si.kind === "premiere" ? t("premiere") : si.code}</span></span>
       <span class="side">${si.ts ? fmtTime(si.ts) : ""}</span></button></div>`;
   }
-  return h + "</div>";
+  return h + `</div><p class="note">${t("sched_tz_note", { zone: zoneName() })}</p>`;
 }
 function pendingDownloadsHTML() {
   const isFresh = (v) => typeof v === "number" && v > 1;
@@ -185,7 +185,7 @@ function pendingDownloadsHTML() {
 }
 function viewNext() {
   if (!db.length && !movies.length) return `<header class="ph"><h1>${t("tab_next")}</h1></header>` + onboardHTML();
-  const today = new Intl.DateTimeFormat(LANG, { weekday: "short", day: "numeric", month: "short" }).format(new Date());
+  const today = new Intl.DateTimeFormat(LANG, { weekday: "short", day: "numeric", month: "short", timeZone: viewTZ() }).format(new Date());
   let h = `<header class="ph"><h1>${t("tab_next")}</h1><span class="sub">${esc(today)}</span></header>`;
   let up = upNextItems(db);
   if (dlPrompt && !up.some((x) => x.s.id === dlPrompt.id)) {
@@ -495,11 +495,27 @@ async function storageLine() {
   return { text: (used != null ? t("set_storage_using", { used: (used / 1048576).toFixed(1), of: quota ? t("set_storage_of", { q: Math.round(quota / 1048576) }) : "" }) + " " : "") + t("n_shows", { n: db.length }) + ", " + t("n_movies", { n: movies.length }) + ".", legacy };
 }
 let storageInfo = { text: "", legacy: 0 };
+/* The zone times are shown in, with its offset: "Asia/Kolkata (UTC+5:30)". */
+/* Some browsers still report the old names for a few zones; show the name people know. */
+const ZONE_ALIAS = { "Asia/Calcutta": "Asia/Kolkata", "Asia/Saigon": "Asia/Ho_Chi_Minh", "Asia/Katmandu": "Asia/Kathmandu", "Asia/Rangoon": "Asia/Yangon" };
+const zoneLabel = (z) => (ZONE_ALIAS[z] || z).replace(/_/g, " ");
+function zoneName() { const z = viewTZ(); return z ? zoneLabel(z) + " (" + tzOffsetLabel(z) + ")" : ""; }
+function zoneList() {
+  let zs = [];
+  try { zs = Intl.supportedValuesOf("timeZone"); } catch (e) { /* older browser: just the device zone and UTC */ }
+  zs = [...new Set(zs.map((z) => ZONE_ALIAS[z] || z))];   // one entry per zone, under the name people know
+  const dev = ZONE_ALIAS[deviceTZ()] || deviceTZ();
+  if (dev && !zs.includes(dev)) zs = [dev, ...zs];
+  if (!zs.includes("UTC")) zs = [...zs, "UTC"];
+  return zs;
+}
 function sheetSettings() {
   const plats = platformsByRelevance(REGION), visible = plats.filter((p, i) => svcAll || i < 12 || myPlatforms.includes(p.id));
   const lastExp = +store("signal.lastexport") || 0;
   return `<div class="phead"><button class="icon-btn" data-closesheet="1" aria-label="${t("back")}">${ico("back")}</button><h2 id="sheetTitle">${t("set_title")}</h2></div><div class="pbody">
-    <div class="group"><h3><label for="langSel">${t("set_lang")}</label></h3><select id="langSel" class="field">${SUPPORTED_LANGS.map((l) => `<option value="${l}"${LANG === l ? " selected" : ""}>${LANG_NAMES[l]}</option>`).join("")}</select></div>
+    <div class="group"><h3><label for="langSel">${t("set_lang")}</label></h3><div class="card"><select id="langSel" class="field">${SUPPORTED_LANGS.map((l) => `<option value="${l}"${LANG === l ? " selected" : ""}>${LANG_NAMES[l]}</option>`).join("")}</select></div></div>
+    <div class="group"><h3><label for="tzSel">${t("set_tz")}</label></h3><div class="card"><select id="tzSel" class="field"><option value=""${TZ_PREF ? "" : " selected"}>${esc(t("set_tz_auto", { zone: zoneLabel(deviceTZ()) + " " + tzOffsetLabel(deviceTZ()) }))}</option>${zoneList().map((z) =>
+      `<option value="${esc(z)}"${TZ_PREF === z ? " selected" : ""}>${esc(zoneLabel(z))} (${tzOffsetLabel(z)})</option>`).join("")}</select><p>${t("set_tz_help")}</p></div></div>
     <div class="group" id="services"><h3>${t("set_services")}</h3><div class="card"><p>${t("set_services_help")}</p><div class="chips">${visible.map((p) =>
       `<button class="fchip" data-svc="${p.id}" aria-pressed="${myPlatforms.includes(p.id)}">${esc(p.label)}</button>`).join("")}</div>
       ${plats.length > visible.length || svcAll ? `<button class="btn sm ghost self-start" data-svcall="1">${svcAll ? t("set_services_less") : t("set_services_all", { n: plats.length })}</button>` : ""}</div></div>

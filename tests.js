@@ -61,21 +61,77 @@ test("merge: the newer copy supplies the other fields and updatedAt is the large
 test("aired: an exact timestamp in the past is live, in the future is not", () => {
   atTime("2026-10-09T12:00:00Z", () => { yes(epLive(ep(1, { ts: "2026-10-09T11:00:00Z" })), "past"); yes(!epLive(ep(1, { ts: "2026-10-09T13:00:00Z" })), "future"); });
 });
-test("aired: a streaming drop unlocks at the start of its date in the show's own timezone", () => {
-  const e = ep(1, { air: "2026-10-09" });   // midnight 9 Oct in Kolkata is 18:30 UTC on the 8th
-  atTime("2026-10-08T18:00:00Z", () => yes(!epLive(e, "Asia/Kolkata", "web"), "half an hour early"));
-  atTime("2026-10-08T18:31:00Z", () => yes(epLive(e, "Asia/Kolkata", "web"), "just after"));
-});
-test("aired: a broadcast episode waits until the END of its date", () => {
-  const e = ep(1, { air: "2026-10-09" });
-  atTime("2026-10-09T10:00:00Z", () => yes(!epLive(e, "Asia/Kolkata", "net"), "same evening"));
-  atTime("2026-10-09T18:31:00Z", () => yes(epLive(e, "Asia/Kolkata", "net"), "next day"));
+test("aired: with no clock time an episode waits until its date has ENDED in the show's own zone", () => {
+  const e = ep(1, { air: "2026-10-09" });   // 23:59:59 on 9 Oct in Kolkata is 18:29:59 UTC the same day
+  atTime("2026-10-08T18:31:00Z", () => yes(!epLive(e, "Asia/Kolkata"), "the moment the date began there"));
+  atTime("2026-10-09T10:00:00Z", () => yes(!epLive(e, "Asia/Kolkata"), "that evening"));
+  atTime("2026-10-09T18:31:00Z", () => yes(epLive(e, "Asia/Kolkata"), "next morning"));
 });
 test("aired: with no timezone on record it assumes US Pacific, so nothing unlocks early", () => {
-  const e = ep(1, { air: "2026-10-09" });
-  atTime("2026-10-09T06:59:00Z", () => yes(!epLive(e, null, "web")));
-  atTime("2026-10-09T07:01:00Z", () => yes(epLive(e, null, "web")));
+  const e = ep(1, { air: "2026-10-09" });   // the date ends at 06:59:59 UTC on the 10th in Pacific summer time
+  atTime("2026-10-10T06:59:00Z", () => yes(!epLive(e, null)));
+  atTime("2026-10-10T07:01:00Z", () => yes(epLive(e, null)));
 });
+
+/* ---------- times TVmaze does not know ---------- */
+// For an episode with no air time TVmaze sends its date at 12:00 UTC. Kept as a real moment it
+// unlocked a US evening show at 8 in the morning and printed a time nobody announced.
+const fakeNoon = (d) => d + "T12:00:00+00:00";
+test("times: noon UTC saved by an older version is not believed, so the date rule applies", () => {
+  const sh = show({ tz: "America/New_York", seasons: [{ season: 1, eps: [ep(1, { air: "2026-10-09", ts: fakeNoon("2026-10-09") })] }] });
+  yes(stripFakeTimes(sh), "should report a change");
+  eq(sh.seasons[0].eps[0].ts, null);
+  atTime("2026-10-09T13:00:00Z", () => yes(!aired(sh, sh.seasons[0].eps[0]), "9am in New York is not the evening"));
+});
+test("times: a show saved by 4.1 keeps a genuine 12:00 UTC time (8am in New York is real)", () => {
+  const sh = show({ tv: 2, seasons: [{ season: 1, eps: [ep(1, { air: "2026-10-09", ts: fakeNoon("2026-10-09") })] }] });
+  eq(stripFakeTimes(sh), false); eq(sh.seasons[0].eps[0].ts, fakeNoon("2026-10-09"));
+});
+test("times: the next-episode date survives losing its fake time", () => {
+  const sh = show({ nextEp: { s: 2, e: 1, ts: fakeNoon("2026-11-20"), date: "2026-11-21" } });
+  stripFakeTimes(sh); eq([sh.nextEp.ts, sh.nextEp.date], [null, "2026-11-20"]);
+});
+test("times: only a show with something recent or coming is worth refreshing for its times", () => {
+  const soon = addDays(5), old = "2015-01-01";
+  yes(needsTimeFix(show({ seasons: [{ season: 1, eps: [ep(1, { air: soon })] }] })), "coming");
+  yes(!needsTimeFix(show({ seasons: [{ season: 1, eps: [ep(1, { air: old })] }] })), "old and finished");
+  yes(!needsTimeFix(show({ tv: 2, seasons: [{ season: 1, eps: [ep(1, { air: soon })] }] })), "already read properly");
+});
+
+/* ---------- the viewer's own time zone ---------- */
+test("zone: clock times and 'today' follow the zone chosen in Settings", () => {
+  setLang("en");
+  try {
+    setTZ("Asia/Kolkata"); yes(/5:30/.test(fmtTime("2026-10-09T12:00:00Z")), "12:00 UTC is 5:30 pm in Kolkata: " + fmtTime("2026-10-09T12:00:00Z"));
+    atTime("2026-10-09T12:00:00Z", () => {
+      setTZ("Pacific/Kiritimati"); eq(todayISO(), "2026-10-10");   // UTC+14: already the next day
+      setTZ("Pacific/Pago_Pago"); eq(todayISO(), "2026-10-09");    // UTC-11: still the same morning
+    });
+    setTZ("Pacific/Kiritimati"); eq(localDate("2026-10-09T12:00:00Z"), "2026-10-10");
+  } finally { setTZ(""); }
+});
+test("zone: a schedule row's day is the viewer's day for the air time shown beside it", () => {
+  const sh = { id: 1, title: "X", seasons: [{ season: 1, eps: [{ e: 1, air: "2026-10-01", ts: null }] }], nextEp: { s: 1, e: 1, date: "2026-11-07", ts: "2026-11-07T20:00:00Z" } };   // 8pm UTC, Friday
+  try {
+    atTime("2026-11-06T10:00:00Z", () => {
+      setTZ("Asia/Kolkata"); eq(soonInfo(sh).dateStr, "2026-11-08");        // 1:30 am Saturday in Delhi
+      setTZ("America/New_York"); eq(soonInfo(sh).dateStr, "2026-11-07");    // 3 pm Friday in New York
+    });
+  } finally { setTZ(""); }
+});
+test("zone: the schedule is in the order of the days its rows show, even for a date-only row", () => {
+  const mk = (id, nextEp) => ({ id, title: "S" + id, seasons: [{ season: 1, eps: [{ e: 1, air: "2026-10-01", ts: null }] }], nextEp });
+  const dateOnly = mk(1, { s: 2, e: 1, date: "2026-11-08", ts: null });                            // Sunday, no time announced
+  const timed = mk(2, { s: 2, e: 1, date: "2026-11-09", ts: "2026-11-09T01:30:00Z" });             // 7 am Monday in Delhi
+  try {
+    atTime("2026-11-06T10:00:00Z", () => {
+      setTZ("Asia/Kolkata");
+      eq(scheduleItems([timed, dateOnly], null).map((x) => x.sh.id), [1, 2]);   // Sunday's row first, whatever hour it opens
+    });
+  } finally { setTZ(""); }
+});
+test("zone: a name that is not a zone falls back to the phone's own", () => { setTZ("Mars/Olympus"); eq(TZ_PREF, ""); setTZ("Asia/Kolkata"); eq(TZ_PREF, "Asia/Kolkata"); setTZ(""); });
+test("zone: an offset reads like UTC+5:30", () => { eq(tzOffsetLabel("Asia/Kolkata"), "UTC+5:30"); eq(tzOffsetLabel("Asia/Kathmandu"), "UTC+5:45"); });
 test("aired: 'Data wrong? Unlock' opens everything", () => {
   yes(aired(show({ unlockAll: true }), ep(1, { air: "2999-01-01" })));
 });
@@ -163,8 +219,9 @@ test("stats: episodes left to watch ignore dropped shows", () => {
 
 /* ---------- offline: the cache list ---------- */
 test("offline: the cache is named after this build, so an old one is cleared", async (env) => {
-  const sw = await env.text("sw.js"); const m = sw.match(/CACHE_NAME = "([^"]+)"/);
-  eq(m && m[1], "signal-v" + BUILD);
+  const sw = await env.text("sw.js");
+  eq(+(sw.match(/const BUILD = (\d+)/) || [])[1], BUILD, "BUILD in sw.js");
+  yes(/CACHE_NAME = "signal-v" \+ BUILD/.test(sw), "CACHE_NAME must be built from BUILD");
 });
 test("offline: every file the cache list names exists (one typo caches nothing, silently)", async (env) => {
   const sw = await env.text("sw.js"), list = [...sw.match(/APP_SHELL = \[([\s\S]*?)\]/)[1].matchAll(/"\.\/([^"]*)"/g)].map((x) => x[1]).filter(Boolean);
@@ -174,9 +231,84 @@ test("offline: every file the cache list names exists (one typo caches nothing, 
 test("offline: every script, stylesheet and font the page loads is in the cache list", async (env) => {
   const sw = await env.text("sw.js"), html = await env.text("index.html"), css = await env.text("style.css");
   const inList = new Set([...sw.match(/APP_SHELL = \[([\s\S]*?)\]/)[1].matchAll(/"\.\/([^"]*)"/g)].map((x) => x[1]));
-  const need = [...html.matchAll(/(?:src|href)="([^"#:]+\.(?:js|css|png|json|webmanifest))"/g)].map((x) => x[1])
+  const need = [...html.matchAll(/(?:src|href)="([^"#:?]+\.(?:js|css|png|json|webmanifest))(?:\?[^"]*)?"/g)].map((x) => x[1])
     .concat([...css.matchAll(/url\("([^"]+\.woff2)"\)/g)].map((x) => x[1]));
   eq([...new Set(need)].filter((f) => !inList.has(f)), []);
+});
+
+/* ---------- updating: opening the app must give the newest one ---------- */
+// A script asked for by a name that never changes can be answered from a copy the browser or the
+// cache kept. Asked for as name?v=<BUILD>, a new build is a new address and cannot be.
+test("update: every script and the stylesheet is asked for by this build's number", async (env) => {
+  const html = await env.text("index.html"), sw = await env.text("sw.js");
+  const files = [...html.matchAll(/(?:src|href)="([^"#:?]+\.(?:js|css))(\?[^"]*)?"/g)];
+  yes(files.length >= 6, "could not read the page's files: " + files.length);
+  const bad = [];
+  for (const [, name, q] of files) {
+    if (q !== "?v=" + BUILD) bad.push(name + " is asked for as " + name + (q || "") + ", not ?v=" + BUILD);
+    if (!sw.includes('"./' + name + '" + V')) bad.push(name + " is not cached under its ?v= name in sw.js");
+  }
+  eq(bad, []);
+});
+/* sw.js run against a made-up network and cache: what an open gets when the connection is good,
+   gone, or slow, and that a new build's files are fetched, not served from the old build's. */
+async function swHarness(env, serve) {
+  const code = (await env.text("sw.js")).replace(/NAV_WAIT = \d+/, "NAV_WAIT = 40");
+  const abs = (u) => new URL(typeof u === "string" ? u : u.url, "https://x.test/signal/").href;
+  class Req { constructor(u, o) { this.url = abs(u); this.method = "GET"; this.mode = (o && o.mode) || "cors"; } }
+  const res = (body, ok = true) => ({ ok, status: ok ? 200 : 404, body, clone() { return this; } });
+  const stores = new Map(), handlers = {}, net = { files: serve, down: false, slow: false, asked: [] };
+  const fetchFn = (u) => {
+    net.asked.push(abs(u));
+    if (net.down) return Promise.reject(new TypeError("offline"));
+    if (net.slow) return new Promise((r) => setTimeout(() => r(res(net.files[abs(u)])), 400));
+    return Promise.resolve(abs(u) in net.files ? res(net.files[abs(u)]) : res("", false));
+  };
+  const cacheOf = (n) => { if (!stores.has(n)) stores.set(n, new Map());
+    return { addAll: (rs) => Promise.all(rs.map((r) => fetchFn(r).then((x) => { if (!x.ok) throw new Error("404 " + r.url); stores.get(n).set(abs(r), x); }))),
+      put: (r, x) => { stores.get(n).set(abs(r), x); return Promise.resolve(); }, match: (r) => Promise.resolve(stores.get(n).get(abs(r))) }; };
+  const cachesFn = { open: (n) => Promise.resolve(cacheOf(n)), keys: () => Promise.resolve([...stores.keys()]), delete: (n) => Promise.resolve(stores.delete(n)),
+    match: (r) => { for (const m of stores.values()) if (m.has(abs(r))) return Promise.resolve(m.get(abs(r))); return Promise.resolve(undefined); } };
+  const self_ = { location: { origin: "https://x.test" }, addEventListener: (k, f) => { handlers[k] = f; }, skipWaiting() {}, clients: { claim() {} } };
+  new Function("self", "caches", "fetch", "Request", "URL", "setTimeout", code)(self_, cachesFn, fetchFn, Req, URL, setTimeout);
+  const fire = (kind, extra) => { let p; handlers[kind](Object.assign({ waitUntil: (x) => { p = x; }, respondWith: (x) => { p = x; } }, extra)); return Promise.resolve(p); };
+  return { net, stores, install: () => fire("install"), open: (u) => fire("fetch", { request: Object.assign(new Req(u || "./"), { mode: "navigate" }) }),
+    get: (u) => fire("fetch", { request: new Req(u) }) };
+}
+const swSite = (build, pageBody) => {
+  const f = { "https://x.test/signal/": pageBody, "https://x.test/signal/index.html": pageBody, "https://x.test/signal/manifest.json": "m", "https://x.test/signal/icon-192.png": "i", "https://x.test/signal/icon-512.png": "i",
+    "https://x.test/signal/fonts/DMSans-latin.woff2": "f", "https://x.test/signal/fonts/DMSans-latin-ext.woff2": "f" };
+  for (const n of ["style.css", "i18n.js", "core.js", "data.js", "ui.js", "app.js"]) f["https://x.test/signal/" + n + "?v=" + BUILD] = n + " of build " + build;
+  return f;
+};
+test("update: online, opening the app shows the newest page, not the one saved last time", async (env) => {
+  const h = await swHarness(env, swSite(1, "page one")); await h.install();
+  h.net.files = swSite(2, "page two");
+  eq((await h.open()).body, "page two");
+  eq((await (await h.stores.get("signal-v" + BUILD).get("https://x.test/signal/index.html"))).body, "page two", "saved for next time");
+});
+test("update: offline, opening the app shows the saved page", async (env) => {
+  const h = await swHarness(env, swSite(1, "page one")); await h.install();
+  h.net.down = true; eq((await h.open()).body, "page one");
+});
+test("update: on a slow connection the saved page appears after a short wait, not a blank screen", async (env) => {
+  const h = await swHarness(env, swSite(1, "page one")); await h.install();
+  h.net.files = swSite(2, "page two"); h.net.slow = true;
+  eq((await h.open()).body, "page one");
+});
+test("update: a saved script is answered from the cache, and a missing one is fetched and kept", async (env) => {
+  const h = await swHarness(env, swSite(1, "page one")); await h.install();
+  const before = h.net.asked.length;
+  eq((await h.get("core.js?v=" + BUILD)).body, "core.js of build 1"); eq(h.net.asked.length, before, "no network for a saved script");
+  h.net.files["https://x.test/signal/extra.js?v=" + BUILD] = "extra";
+  eq((await h.get("extra.js?v=" + BUILD)).body, "extra"); h.net.down = true;
+  eq((await h.get("extra.js?v=" + BUILD)).body, "extra", "kept for offline");
+});
+test("update: a build with a missing file does not install, so the working version stays", async (env) => {
+  const f = swSite(2, "page two"); delete f["https://x.test/signal/ui.js?v=" + BUILD];
+  const h = await swHarness(env, f); let failed = false;
+  try { await h.install(); } catch (e) { failed = true; }
+  yes(failed, "install should reject");
 });
 
 /* ---------- taps ---------- */
