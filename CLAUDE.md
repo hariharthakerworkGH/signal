@@ -87,8 +87,13 @@ action except those in `KEEP_MENU`.
   to watch), UP TO DATE (current, or a premiere still ahead), DONE (finished,
   ended, or nothing aired in 18 months). `bucketOverride` is the user's manual
   say and always wins; a dropped show keeps its history and leaves tracking.
-- **Up next** (`upNextItems`) is the shows in WATCHING, most recently watched
-  first; a show never started only counts if it aired this week.
+- **Up next** (`upNextItems`) is every show in WATCHING, most recently watched first,
+  then shows not yet started by what aired last. Nothing is left out for being old: only
+  a tick (watched, or the show dropped) takes a show off Next. "See all" opens the rest in
+  place. **Released earlier** (`pastItems`, `pastHTML`) sits dimmed above "This week":
+  every aired episode not ticked watched or downloaded, the last 7 days when collapsed,
+  all (cap 300) when opened. Rule: a list on Next may never empty by itself because time
+  passed.
 - Dates are local `YYYY-MM-DD` strings built the local way - never
   `toISOString()`, which is a day behind in India.
 - Cloud sync is a private Gist holding `{shows, deleted, movies}`. Deletions are

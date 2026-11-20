@@ -270,6 +270,8 @@ const ACTIONS = {
   dlmore: (v) => { dlShowAll[+v] = !dlShowAll[+v]; render(); },
   dlexp: () => { dlOpen = !dlOpen; render(); },
   schedtoggle: () => { schedOpen = !schedOpen; render(); },
+  readytoggle: () => { readyOpen = !readyOpen; render(); },
+  pasttoggle: () => { pastOpen = !pastOpen; render(); },
   mvpend: (v) => { const m = movieById(v); if (!m) return; m.dl = true; m.dlWant = false; touchMovie(m); save(); render(); toast(t("toast_mv_dl", { title: m.title })); },
 
   /* library */

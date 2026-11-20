@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "4.2.1";
-const BUILD = 53;
+const APP_VERSION = "4.3";
+const BUILD = 54;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
@@ -247,20 +247,31 @@ function catOf(sh) {
   }
   return "waiting";
 }
-/* Shows with something aired and unwatched, most recently watched first, as
-   {s, n}. A show you have never started only counts if it aired this week, so
-   old backlog does not crowd out new premieres. */
-function upNextItems(shows, weekMs) {
-  const wk = weekMs || 7 * 24 * 3600e3;
-  return shows.filter((s) => catOf(s) === "watching").map((s) => ({ s, n: nextUnwatched(s) })).filter((x) => {
-    if (!x.n) return false;
-    if (wCount(x.s) > 0) return true;
-    const seas = x.s.seasons.find((z) => z.season === x.n.s);
-    const ep = seas && seas.eps.find((z) => z.e === x.n.e);
-    if (!ep) return false;
-    const at = ep.ts ? new Date(ep.ts).getTime() : (ep.air ? new Date(ep.air + "T00:00:00").getTime() : 0);
-    return at > 0 && Date.now() - at < wk;
-  }).map((x, i) => ({ ...x, i })).sort((a, b) => lastWatched(b.s) - lastWatched(a.s) || a.i - b.i);
+/* Every show with something aired and unwatched, as {s, n}. Nothing is left out for
+   being old or never started: only a tick (watched, or the show dropped) takes a
+   show off this list. Order: what you watched most recently first, then the rest by
+   what aired most recently. (Before 4.3 a show you had never started was dropped
+   once its OLDEST unwatched episode was a week old, so a premiere vanished.) */
+function upNextItems(shows) {
+  return shows.filter((s) => catOf(s) === "watching").map((s, i) => ({ s, n: nextUnwatched(s), i })).filter((x) => x.n)
+    .sort((a, b) => lastWatched(b.s) - lastWatched(a.s) || lastAiredMs(b.s) - lastAiredMs(a.s) || a.i - b.i);
+}
+/* Episodes already out and not ticked, newest first, as {sh, s, e, name, ms, dateStr}.
+   withinMs limits how far back (null = all). An episode marked watched OR downloaded
+   is done with; a dropped show has none. Used for the "Released earlier" list. */
+function pastItems(shows, withinMs) {
+  const now = Date.now(), out = [];
+  for (const sh of shows) {
+    if (dropped(sh)) continue;
+    for (const se of sh.seasons || []) for (const ep of se.eps || []) {
+      const k = epK(se.season, ep.e);
+      if ((sh.watched && sh.watched[k]) || (sh.dl && sh.dl[k]) || !aired(sh, ep)) continue;
+      const ms = ep.ts ? new Date(ep.ts).getTime() : (ep.air ? airMoment(ep, sh) : 0);
+      if (!ms || ms > now || (withinMs != null && now - ms > withinMs)) continue;
+      out.push({ sh, s: se.season, e: ep.e, name: ep.name || "", ms, dateStr: epDate(ep) });
+    }
+  }
+  return out.sort((a, b) => b.ms - a.ms || a.sh.id - b.sh.id || a.s - b.s || a.e - b.e);
 }
 /* What is dated in the next stretch, soonest first. */
 function scheduleItems(shows, withinMs) {

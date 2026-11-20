@@ -204,10 +204,40 @@ test("buckets: caught up on a show that ended is DONE", () => eq(catOf(show({ se
 test("buckets: a dropped show is DONE whatever else is true", () => eq(catOf(show({ seasons: [live(3)], bucketOverride: "dropped", inProduction: true })), "done"));
 test("buckets: the user's own override beats the computed bucket", () => eq(catOf(show({ seasons: [live(2)], watched: { "1-1": 1, "1-2": 1 }, inProduction: true, bucketOverride: "done" })), "done"));
 test("buckets: a premiere that has not aired is UP TO DATE", () => eq(catOf(show({ seasons: [{ season: 1, eps: [ep(1, { air: addDays(30) })] }], firstAir: addDays(30) })), "waiting"));
-test("up next: most recently watched first, and old backlog you never started is left out", () => {
+test("up next: most recently watched first, then shows you have not started; none is dropped", () => {
   const mk = (id, last) => show({ id, seasons: [live(3)], watched: last ? { "1-1": last } : {}, inProduction: true });
   const items = upNextItems([mk(1, T(10)), mk(2, T(99)), mk(3, 0)]);
-  eq(items.map((x) => x.s.id), [2, 1]);
+  eq(items.map((x) => x.s.id), [2, 1, 3]);
+});
+test("up next: a show you never started stays on the list however old its episode is", () => {
+  const sh = show({ id: 7, seasons: [{ season: 1, eps: [ep(1, { air: "2025-01-01" })] }], inProduction: true });
+  atTime("2026-11-20T12:00:00Z", () => eq(upNextItems([sh]).map((x) => x.s.id), [7]));
+});
+test("up next: a new season of a show you never started stays on the list after its premiere day", () => {
+  const sh = show({ id: 8, seasons: [{ season: 1, eps: [ep(1, { air: "2025-01-01" })] }, { season: 2, eps: [ep(1, { air: "2026-11-20" })] }], inProduction: true, watched: {} });
+  // Premiere day, one day on, a week on, a month on: it must be there every time, until a tick takes it off.
+  for (const when of ["2026-11-20T20:00:00Z", "2026-11-22T04:00:00Z", "2026-11-28T12:00:00Z", "2026-12-25T12:00:00Z"])
+    atTime(when, () => eq(upNextItems([sh]).map((x) => x.s.id), [8], when));
+});
+test("up next: only a tick takes it off (watched episode, then nothing left)", () => {
+  const sh = show({ id: 9, seasons: [{ season: 1, eps: [ep(1, { air: "2026-11-01" })] }], inProduction: true });
+  atTime("2026-12-25T12:00:00Z", () => { eq(upNextItems([sh]).length, 1); sh.watched["1-1"] = T(1); eq(upNextItems([sh]).length, 0); });
+});
+
+/* ---------- released earlier (the past list on Next) ---------- */
+test("past list: aired and not ticked, newest first; ticked, downloaded, dropped, future and too old are left out", () => {
+  atTime("2026-11-20T12:00:00Z", () => {
+    const sh = show({ id: 1, seasons: [{ season: 1, eps: [ep(1, { air: "2026-11-01" }), ep(2, { air: "2026-11-15" }), ep(3, { air: "2026-11-17" }), ep(4, { air: "2026-11-18" }), ep(5, { air: "2026-11-19" }), ep(6, { air: "2026-11-25" })] }], watched: { "1-3": T(1) }, dl: { "1-4": 1 } });
+    const dr = show({ id: 2, bucketOverride: "dropped", seasons: [{ season: 1, eps: [ep(1, { air: "2026-11-18" })] }] });
+    eq(pastItems([sh, dr], 7 * 864e5).map((x) => x.sh.id + ":" + x.e), ["1:5", "1:2"]);
+    eq(pastItems([sh, dr], null).map((x) => x.sh.id + ":" + x.e), ["1:5", "1:2", "1:1"]);
+  });
+});
+test("past list: an episode with a real air time is placed at that moment, and one that has not aired is not there", () => {
+  atTime("2026-11-20T12:00:00Z", () => {
+    const sh = show({ id: 1, seasons: [{ season: 1, eps: [ep(1, { air: "2026-11-20", ts: "2026-11-20T03:00:00+00:00" }), ep(2, { air: "2026-11-20", ts: "2026-11-20T20:00:00+00:00" })] }] });
+    eq(pastItems([sh], 7 * 864e5).map((x) => x.e), [1]);
+  });
 });
 
 /* ---------- why a show would not refresh ---------- */

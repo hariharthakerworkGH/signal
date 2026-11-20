@@ -10,7 +10,8 @@ server, no analytics and nothing to sign up for.
 ## What it does
 
 - **Next.** What to watch now: one big card for the show you were on, one tap to
-  mark the episode, the rest of what is ready, and what airs this week.
+  mark the episode, the rest of what is ready, what came out earlier and you have
+  not ticked (dimmed, nothing disappears until you tick it), and what airs this week.
 - **Library.** Everything you track, Shows or Movies, with search and status
   filters. Open a show for a numbered list of episodes with their titles and air
   dates; tap to mark. Episodes that have not aired are locked and unlock

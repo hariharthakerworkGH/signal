@@ -273,6 +273,13 @@ select.field { padding-inline:10px 6px; }
 .row .when span { font-size:12px; color:var(--dim); }
 .row .when b { font-size:18px; font-weight:600; }
 .tag { display:inline-block; font-size:12px; color:var(--dim); background:var(--up); border-radius:4px; padding:1px 6px; }
+/* "Released earlier": the same rows as the week ahead, set back. Only the title colour and the poster are
+   dimmed (never the whole row with opacity), so every word still clears 4.5:1 and the tick stays full strength. */
+.rows.past .row .mid b { color:var(--dim); font-weight:400; }
+.rows.past .row:hover .mid b { color:var(--at); }
+.rows.past .thumb { opacity:.55; }
+.rows.past .when span, .rows.past .when b { color:var(--faint); }
+.rows.past .tag { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--faint); background:none; padding-inline:0; }
 
 /* ---------- Next ---------- */
 .hcard { position:relative; display:block; margin-block-start:8px; border-radius:var(--r-l); overflow:hidden; min-height:176px; background:var(--card); }

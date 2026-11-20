@@ -52,7 +52,7 @@ let viewMode = store("signal.view") || "grid";
 let showSort = store("signal.sort") || "auto";
 let movTab = "watchlist", movFilter = "", movLimit = 60, movSort = store("signal.movsort") || "auto";
 let discLang = "all", discOpen = null;
-let schedOpen = false, dlOpen = false, dlShowAll = {}, stuckOpen = false, menuOpen = false, svcAll = false;
+let schedOpen = false, readyOpen = false, pastOpen = false, dlOpen = false, dlShowAll = {}, stuckOpen = false, menuOpen = false, svcAll = false;
 let selSeason = {}, aboutOpen = {}, confirmDel = null, movConfirmDel = null;
 let findType = "all", addQ = "", addRes = { state: "idle", shows: [], movies: [], q: "" };
 
@@ -137,7 +137,7 @@ function caughtUpHTML() {
 }
 function dayParts(d) {
   const dt = new Date(d + "T00:00:00");
-  return { wd: new Intl.DateTimeFormat(LANG, { weekday: "short" }).format(dt), n: dt.getDate() };
+  return { wd: new Intl.DateTimeFormat(LANG, { weekday: "short" }).format(dt), n: dt.getDate(), mo: new Intl.DateTimeFormat(LANG, { month: "short" }).format(dt) };
 }
 function scheduleHTML() {
   const items = scheduleItems(db, schedOpen ? null : 7 * 24 * 3600e3);
@@ -155,6 +155,32 @@ function scheduleHTML() {
       <span class="side">${si.ts ? fmtTime(si.ts) : ""}</span></button></div>`;
   }
   return h + `</div><p class="note">${t("sched_tz_note", { zone: zoneName() })}</p>`;
+}
+/* What came out and has not been ticked, dimmed, directly above the week ahead so the two read as one
+   timeline (older at the top, today at the seam). It never empties by itself: only a tick (or a
+   download tick) removes a row. Collapsed: the last 7 days (or the 3 newest when that is empty). */
+const PAST_CAP = 300;   // the real library held 137; the cap only protects a phone from a four-figure backlog
+function pastHTML() {
+  const all = pastItems(db, null);
+  if (!all.length) return "";
+  const week = all.filter((x) => Date.now() - x.ms <= 7 * 24 * 3600e3);
+  const base = week.length ? week : all.slice(0, 3);
+  const shown = (pastOpen ? all.slice(0, PAST_CAP) : base.slice(0, 6)).slice().reverse();
+  let h = `<div class="sec"><h2>${t("sec_past")}</h2>${all.length > shown.length || pastOpen
+    ? `<button class="more" data-pasttoggle="1" aria-expanded="${pastOpen}">${pastOpen ? t("show_less") : t("past_all", { n: all.length })}</button>`
+    : `<span class="meta">${all.length}</span>`}</div><div class="rows past">`;
+  let day = null;
+  for (const x of shown) {
+    const p = dayParts(x.dateStr), first = x.dateStr !== day; day = x.dateStr;
+    const code = codeOf(x.s, x.e);
+    h += `<div class="row dense"><button class="main" data-show="${x.sh.id}">
+      <span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b><span>${esc(p.mo)}</span>` : ""}</span>${thumbHTML(x.sh.poster, x.sh.title)}
+      <span class="mid"><b class="clip">${esc(x.sh.title)}</b><span class="tag">${code}${x.name ? " · " + esc(x.name) : ""}</span></span></button>
+      ${checkBtn("data-ep", x.sh.id + ":" + x.s + ":" + x.e, x.sh.title + ": " + t("btn_mark_ep", { code }))}</div>`;
+  }
+  h += `</div>`;
+  if (pastOpen && all.length > PAST_CAP) h += `<p class="note">${t("past_more", { n: all.length - PAST_CAP })}</p>`;
+  return h;
 }
 function pendingDownloadsHTML() {
   const isFresh = (v) => typeof v === "number" && v > 1;
@@ -195,11 +221,12 @@ function viewNext() {
   if (up.length) {
     h += heroCard(up[0]);
     const rest = up.slice(1);
+    // Every show is reachable from here: 8 rows, and "See all" opens the rest in place (it used to leave the page).
     if (rest.length) h += `<div class="sec"><h2>${t("sec_ready")}</h2>${rest.length > 8
-      ? `<button class="more" data-goto="library:watching">${t("see_all")}</button>` : `<span class="meta">${t("more_n", { n: rest.length })}</span>`}</div>
-      <div class="rows">${rest.slice(0, 8).map(readyRow).join("")}</div>`;
+      ? `<button class="more" data-readytoggle="1" aria-expanded="${readyOpen}">${readyOpen ? t("show_less") : t("see_all")}</button>` : `<span class="meta">${t("more_n", { n: rest.length })}</span>`}</div>
+      <div class="rows">${(readyOpen ? rest : rest.slice(0, 8)).map(readyRow).join("")}</div>`;
   } else if (db.length) h += caughtUpHTML();
-  return h + scheduleHTML() + pendingDownloadsHTML();
+  return h + pastHTML() + scheduleHTML() + pendingDownloadsHTML();
 }
 
 /* ================= Library ================= */
