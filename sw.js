@@ -13,7 +13,7 @@
  *
  * BUILD must match BUILD in core.js (tests.js checks), and goes up every release.
  */
-const BUILD = 54;
+const BUILD = 55;
 const CACHE_NAME = "signal-v" + BUILD;
 const V = "?v=" + BUILD;
 const NAV_WAIT = 3000;

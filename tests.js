@@ -240,6 +240,28 @@ test("past list: an episode with a real air time is placed at that moment, and o
   });
 });
 
+/* ---------- films on Next (4.4) ---------- */
+const film = (id, rel, added, extra) => ({ id, title: id, releaseDate: rel, addedAt: added ? Date.parse(added) : null, watched: false, ...extra });
+test("films: one added BEFORE its release shows as released from its release day, until it is ticked", () => {
+  atTime("2026-11-20T12:00:00Z", () => {
+    const ms = [film("a", "2026-11-19", "2026-11-01T10:00:00Z"), film("b", "2026-11-20", "2026-11-01T10:00:00Z"),
+      film("c", "2026-11-19", "2026-11-19T10:00:00Z"), film("d", "2026-11-19", "2026-11-25T10:00:00Z"), film("e", "2026-11-19", null),
+      film("f", "2026-11-19", "2026-11-01T10:00:00Z", { watched: true }), film("g", "2026-11-25", "2026-11-01T10:00:00Z"), film("h", null, "2026-11-01T10:00:00Z")];
+    // c was added on its release day (counts, it was not out yet when added); d added after release, e unknown, f watched, g future, h undated: all left out
+    eq(pastFilms(ms, null).map((x) => x.m.id), ["b", "a", "c"]);
+    eq(pastFilms(ms, 7 * 864e5).map((x) => x.m.id), ["b", "a", "c"]);
+  });
+});
+test("films: a film released long ago stays on the list (nothing expires by time)", () => {
+  atTime("2026-12-25T12:00:00Z", () => eq(pastFilms([film("a", "2026-11-19", "2026-11-01T10:00:00Z")], null).map((x) => x.m.id), ["a"]));
+});
+test("films: one coming within the week is listed ahead, soonest first, and not once released", () => {
+  atTime("2026-11-20T12:00:00Z", () => {
+    const ms = [film("far", "2026-11-30", "2026-11-01T10:00:00Z"), film("b", "2026-11-23", "2026-11-01T10:00:00Z"), film("a", "2026-11-21", "2026-11-01T10:00:00Z"), film("w", "2026-11-22", "2026-11-01T10:00:00Z", { watched: true }), film("today", "2026-11-20", "2026-11-01T10:00:00Z")];
+    eq(comingFilms(ms, 7 * 864e5).map((x) => x.m.id), ["a", "b"]);
+  });
+});
+
 /* ---------- why a show would not refresh ---------- */
 test("refresh failures: a daily serial and a vanished show are hard, a server hiccup is not", () => {
   const a = {}, b = {}, c = {}, d = {};

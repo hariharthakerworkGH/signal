@@ -93,7 +93,10 @@ action except those in `KEEP_MENU`.
   place. **Released earlier** (`pastItems`, `pastHTML`) sits dimmed above "This week":
   every aired episode not ticked watched or downloaded, the last 7 days when collapsed,
   all (cap 300) when opened. Rule: a list on Next may never empty by itself because time
-  passed.
+  passed. **Films (4.4)** follow the same rule: one you added before (or on) its release
+  day, not yet ticked, is in "Released earlier" from that day (`pastFilms`) and in
+  "This week" while it is still ahead (`comingFilms`). A film added after it was out, or
+  with no add date, stays in Library > Movies only.
 - Dates are local `YYYY-MM-DD` strings built the local way - never
   `toISOString()`, which is a day behind in India.
 - Cloud sync is a private Gist holding `{shows, deleted, movies}`. Deletions are

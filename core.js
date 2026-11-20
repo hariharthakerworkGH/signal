@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "4.3";
-const BUILD = 54;
+const APP_VERSION = "4.4";
+const BUILD = 55;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
@@ -272,6 +272,31 @@ function pastItems(shows, withinMs) {
     }
   }
   return out.sort((a, b) => b.ms - a.ms || a.sh.id - b.sh.id || a.s - b.s || a.e - b.e);
+}
+/* Films you added BEFORE they came out (or on the day) and have not ticked, from their
+   release day on, newest first, as {m, ms, dateStr}. A film added after it was out, or with
+   no known add date, is your own watchlist, not something you were waiting for, so it
+   stays in the Library only. Like episodes, nothing here expires by time. */
+function pastFilms(movies, withinMs) {
+  const now = Date.now(), td = todayISO(), out = [];
+  for (const m of movies || []) {
+    if (m.watched || !m.releaseDate || m.releaseDate > td || !m.addedAt || ymd(m.addedAt) > m.releaseDate) continue;
+    const ms = new Date(m.releaseDate + "T00:00:00").getTime();
+    if (withinMs != null && now - ms > withinMs) continue;
+    out.push({ m, ms, dateStr: m.releaseDate });
+  }
+  return out.sort((a, b) => b.ms - a.ms || String(a.m.id).localeCompare(String(b.m.id)));
+}
+/* The same films while they are still ahead (after today), within the stretch, soonest first. */
+function comingFilms(movies, withinMs) {
+  const now = Date.now(), td = todayISO(), out = [];
+  for (const m of movies || []) {
+    if (m.watched || !m.releaseDate || m.releaseDate <= td) continue;
+    const ms = new Date(m.releaseDate + "T00:00:00").getTime();
+    if (withinMs != null && ms - now > withinMs) continue;
+    out.push({ m, ms, dateStr: m.releaseDate });
+  }
+  return out.sort((a, b) => a.ms - b.ms || String(a.m.id).localeCompare(String(b.m.id)));
 }
 /* What is dated in the next stretch, soonest first. */
 function scheduleItems(shows, withinMs) {

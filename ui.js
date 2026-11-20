@@ -139,18 +139,28 @@ function dayParts(d) {
   const dt = new Date(d + "T00:00:00");
   return { wd: new Intl.DateTimeFormat(LANG, { weekday: "short" }).format(dt), n: dt.getDate(), mo: new Intl.DateTimeFormat(LANG, { month: "short" }).format(dt) };
 }
+/* The week ahead: episodes and premieres, plus films you added before their release. */
+function scheduleEntries(span) {
+  return [...scheduleItems(db, span).map(({ sh, si }) => ({ d: si.dateStr || localDate(si.ts), ms: si.ms, sh, si })),
+    ...comingFilms(movies, span).map((f) => ({ d: f.dateStr, ms: f.ms, film: f.m }))]
+    .sort((a, b) => a.d.localeCompare(b.d) || a.ms - b.ms);
+}
 function scheduleHTML() {
-  const items = scheduleItems(db, schedOpen ? null : 7 * 24 * 3600e3);
+  const items = scheduleEntries(schedOpen ? null : 7 * 24 * 3600e3);
   if (!items.length) return "";
-  const all = scheduleItems(db, null);
+  const all = scheduleEntries(null);
   const shown = items.slice(0, schedOpen ? 80 : 6);
   let h = `<div class="sec"><h2>${t("sec_week")}</h2>${all.length > shown.length || schedOpen
     ? `<button class="more" data-schedtoggle="1">${schedOpen ? t("show_less") : t("full_schedule", { n: all.length })}</button>` : ""}</div><div class="rows">`;
   let day = null;
-  for (const { sh, si } of shown) {
-    const d = si.dateStr || localDate(si.ts), p = dayParts(d), first = d !== day; day = d;
+  for (const x of shown) {
+    const p = dayParts(x.d), first = x.d !== day; day = x.d;
+    const when = `<span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b>` : ""}</span>`;
+    if (x.film) { h += `<div class="row dense"><button class="main" data-film="${esc(x.film.id)}">${when}${thumbHTML(x.film.poster, x.film.title)}
+      <span class="mid"><b class="clip">${esc(x.film.title)}</b><span class="tag">${t("film_tag")}</span></span></button></div>`; continue; }
+    const { sh, si } = x;
     h += `<div class="row dense"><button class="main" data-show="${sh.id}">
-      <span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b>` : ""}</span>${thumbHTML(sh.poster, sh.title)}
+      ${when}${thumbHTML(sh.poster, sh.title)}
       <span class="mid"><b class="clip">${esc(sh.title)}</b><span class="tag">${si.kind === "premiere" ? t("premiere") : si.code}</span></span>
       <span class="side">${si.ts ? fmtTime(si.ts) : ""}</span></button></div>`;
   }
@@ -161,7 +171,7 @@ function scheduleHTML() {
    download tick) removes a row. Collapsed: the last 7 days (or the 3 newest when that is empty). */
 const PAST_CAP = 300;   // the real library held 137; the cap only protects a phone from a four-figure backlog
 function pastHTML() {
-  const all = pastItems(db, null);
+  const all = [...pastItems(db, null), ...pastFilms(movies, null)].sort((a, b) => b.ms - a.ms);
   if (!all.length) return "";
   const week = all.filter((x) => Date.now() - x.ms <= 7 * 24 * 3600e3);
   const base = week.length ? week : all.slice(0, 3);
@@ -172,9 +182,16 @@ function pastHTML() {
   let day = null;
   for (const x of shown) {
     const p = dayParts(x.dateStr), first = x.dateStr !== day; day = x.dateStr;
+    const when = `<span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b><span>${esc(p.mo)}</span>` : ""}</span>`;
+    if (x.m) {
+      h += `<div class="row dense"><button class="main" data-film="${esc(x.m.id)}">${when}${thumbHTML(x.m.poster, x.m.title)}
+      <span class="mid"><b class="clip">${esc(x.m.title)}</b><span class="tag">${t("film_tag")}</span></span></button>
+      ${checkBtn("data-mvw", esc(x.m.id), x.m.title + ": " + t("mv_mark_watched"))}</div>`;
+      continue;
+    }
     const code = codeOf(x.s, x.e);
     h += `<div class="row dense"><button class="main" data-show="${x.sh.id}">
-      <span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b><span>${esc(p.mo)}</span>` : ""}</span>${thumbHTML(x.sh.poster, x.sh.title)}
+      ${when}${thumbHTML(x.sh.poster, x.sh.title)}
       <span class="mid"><b class="clip">${esc(x.sh.title)}</b><span class="tag">${code}${x.name ? " · " + esc(x.name) : ""}</span></span></button>
       ${checkBtn("data-ep", x.sh.id + ":" + x.s + ":" + x.e, x.sh.title + ": " + t("btn_mark_ep", { code }))}</div>`;
   }
