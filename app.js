@@ -256,6 +256,8 @@ const ACTIONS = {
   stucktoggle: () => { stuckOpen = !stuckOpen; paintStatus(); },
   bannerexport: () => { exportDb(); render(); },
   nagsnooze: () => { store("signal.nagsnooze", String(Date.now() + 7 * 864e5)); render(); },
+  tzkeep: () => { tzSeen = deviceTZ(); store("signal.tzseen", tzSeen); render(); },
+  tzuse: () => { if (!isZone(deviceTZ())) return; setTZ(deviceTZ()); store("signal.tz", TZ_PREF); discCache = null; store("signal.discover", "null"); render(); toast(t("toast_tz_use", { zone: zoneName() })); },
 
   /* today */
   next: (v) => markNext(+v),
@@ -371,6 +373,16 @@ document.addEventListener("click", (ev) => {
   while (el && el.nodeType === 1) {
     if (el.dataset) for (const k of ACT_KEYS) if (k in el.dataset) {
       if (menuOpen && !KEEP_MENU.includes(k) && el.closest(".menu")) menuOpen = false;
+      // A tick on a cover or a row fills first, then the mark is saved and the list redraws without it.
+      // The fill is a class, so it is put on BEFORE the data changes; with reduced motion there is no wait.
+      const host = el.classList.contains("tick") && !matchMedia("(prefers-reduced-motion: reduce)").matches ? el.closest(".pc, .row") : null;
+      if (host) {
+        if (host.classList.contains("done")) return;
+        host.classList.add("done");
+        const v = el.dataset[k];
+        setTimeout(() => ACTIONS[k](v, el, ev), 260);
+        return;
+      }
       ACTIONS[k](el.dataset[k], el, ev); return;
     }
     el = el.parentElement;
@@ -388,7 +400,7 @@ document.addEventListener("change", (ev) => {
   if (el.id === "sortSel") { showSort = el.value; store("signal.sort", showSort); render(); }
   else if (el.id === "movSortSel") { movSort = el.value; store("signal.movsort", movSort); render(); }
   else if (el.id === "langSel") { setLang(el.value); store("signal.lang", LANG); applyStatic(); render(); }
-  else if (el.id === "tzSel") { setTZ(el.value); store("signal.tz", TZ_PREF); render(); }
+  else if (el.id === "tzSel") { setTZ(el.value === "auto" ? "" : el.value); store("signal.tz", TZ_PREF || "auto"); discCache = null; store("signal.discover", "null"); render(); }
   else if (modalCtl && modalCtl.onChange) modalCtl.onChange(el);
 });
 document.addEventListener("keydown", (ev) => {
@@ -439,8 +451,14 @@ function reloadForUpdate() {
 function registerSW() {
   if (!("serviceWorker" in navigator)) return Promise.resolve();
   const hadWorker = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!hadWorker) return;   // the very first install replaces nothing
+  // On the very first visit the first controllerchange is the new worker claiming this page, which replaces
+  // nothing. Only that one is skipped: a page left open since then must still reload for every later build
+  // (it used to skip them all, so a first-visit page missed updates until it was closed and reopened).
+  let claimed = hadWorker;
+  navigator.serviceWorker.addEventListener("controllerchange", async () => {
+    if (!claimed) { claimed = true; return; }
+    let keys = []; try { keys = await caches.keys(); } catch (e) { /* cannot tell: reload to be safe */ }
+    if (!pageIsStale(keys, BUILD)) return;   // this page was fetched fresh and is already the new build
     if (!booted || !busyTyping()) reloadForUpdate();
     else { swWantsReload = true; toast(t("toast_new_version"), 8000); }
   });
@@ -460,7 +478,7 @@ function hideSplash() {
 window.addEventListener("online", () => toast(t("toast_online")));
 window.addEventListener("offline", () => toast(t("toast_offline")));
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") pullCloud(true);
+  if (document.visibilityState === "visible") { pullCloud(true); if (booted) paintStatus(); }
   else {   // flush anything still pending before the tab is frozen
     if (pushTimer) pushCloud();
     saveLocal();
@@ -469,7 +487,8 @@ document.addEventListener("visibilitychange", () => {
 });
 
 (async () => {
-  setTZ(store("signal.tz") || "");
+  const hz = bootZone(store("signal.tz"), deviceTZ());   // pin the home zone once; a VPN cannot move it
+  setTZ(hz.pref); if (hz.save !== null && hz.save !== store("signal.tz")) store("signal.tz", hz.save);
   setLang(pickLang(store("signal.lang"), navigator.languages));
   applyStatic();
   const swDone = registerSW();

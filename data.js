@@ -574,8 +574,7 @@ async function fetchDiscover(force) {
   const found = {};
   try {
     const all = await maze("/schedule/full");
-    const limit = new Date(); limit.setDate(limit.getDate() + 60);
-    const limISO = limit.getFullYear() + "-" + pad(limit.getMonth() + 1) + "-" + pad(limit.getDate());
+    const limISO = ymd(Date.now() + 60 * 864e5);   // in the home zone, like "today" below
     const today = todayISO();
     for (const ep of all || []) {
       if (ep.number !== 1) continue;

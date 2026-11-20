@@ -106,7 +106,11 @@ function subLine(sh) {
 }
 const recentFirst = (a, b) => (b.addedAt || b.updatedAt || 0) - (a.addedAt || a.updatedAt || 0);
 const q2 = (s) => s.toLowerCase();
-const checkBtn = (attr, id, label, cls) => `<button class="btn ${cls || "soft"} ic act" ${attr}="${id}" aria-label="${esc(label)}">${ico("check")}</button>`;
+/* The tick: an empty rounded square that fills with amber and draws its check (cyan for "downloaded").
+   app.js puts class "done" on the card or row for a moment before the mark is saved, so the fill is seen. */
+const checkBtn = (attr, id, label, cls) => `<button class="tick${cls === "cyan" ? " cyan" : ""} act" ${attr}="${id}" aria-label="${esc(label)}">${ico("check")}</button>`;
+/* The inside of a cover: initial letter under the picture, so a missing or broken image still reads. */
+const coverInner = (url, title) => { const src = imgSrc(url); return `<span class="ini">${initialOf(title)}</span>${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" onerror="this.remove()">` : ""}`; };
 
 /* ================= Next ================= */
 function onboardHTML() {
@@ -118,16 +122,18 @@ function heroCard(x) {
   const s = x.s, n = x.n, pr = dlPrompt && dlPrompt.id === s.id ? dlPrompt : null;
   const a = airedTotal(s), w = wCount(s), code = codeOf(pr ? pr.s : n.s, pr ? pr.e : n.e);
   const line = pr ? t("asked_dl", { code }) : [code, n.name, w + " " + t("d_of_watched", { a })].filter(Boolean).join(" · ");
-  return `<section class="hcard">${backdropHTML(s.poster)}<div class="hin">
+  return `<section class="hcard">${backdropHTML(s.poster)}<span class="hpst" aria-hidden="true">${coverInner(s.poster, s.title)}</span><div class="hin">
     <button class="open" data-show="${s.id}" aria-label="${esc(t("open_show", { title: s.title }))}"><span class="kick">${t("continue_watching")}</span><h2 class="clip">${esc(s.title)}</h2><span class="l2 clip">${esc(line)}</span></button>
-    ${pr ? `<button class="btn cyan" data-dlnext="${s.id}:${pr.s}:${pr.e}">${ico("download")}${t("btn_mark_downloaded")}</button>`
-         : `<button class="btn primary" data-next="${s.id}">${ico("check")}${t("btn_mark_ep", { code })}</button>`}</div></section>`;
+    <div class="go">${pr ? `<button class="btn big cyan" data-dlnext="${s.id}:${pr.s}:${pr.e}">${ico("download")}${t("btn_mark_downloaded")}</button>`
+         : `<button class="btn big primary" data-next="${s.id}">${ico("check")}${t("btn_mark_ep", { code })}</button>`}
+      <button class="btn big soft ic" data-show="${s.id}" aria-label="${esc(t("open_show", { title: s.title }))}">${ico("chev")}</button></div></div></section>`;
 }
-function readyRow(x) {
+/* One cover on the Ready wall: the episode code on the art, the tick in the corner, the title under it. */
+function readyCard(x) {
   const s = x.s, n = x.n, left = Math.max(0, airedTotal(s) - wCount(s)), code = codeOf(n.s, n.e);
-  return `<div class="row"><button class="main" data-show="${s.id}">${thumbHTML(s.poster, s.title)}
-    <span class="mid"><b class="clip">${esc(s.title)}</b><span class="l2 clip">${code}${n.name ? " · " + esc(n.name) : ""}</span></span>
-    <span class="side">${t("left_n", { n: left })}</span></button>${checkBtn("data-next", s.id, s.title + ": " + t("btn_mark_ep", { code }))}</div>`;
+  return `<div class="pc"><div class="art"><button class="open" data-show="${s.id}" aria-label="${esc(t("open_show", { title: s.title }))}">${coverInner(s.poster, s.title)}</button>
+    <span class="badge">${code}</span>${checkBtn("data-next", s.id, s.title + ": " + t("btn_mark_ep", { code }))}</div>
+    <b class="clip">${esc(s.title)}</b><small class="clip">${t("left_n", { n: left })}</small></div>`;
 }
 function caughtUpHTML() {
   const nxt = scheduleItems(db, null)[0];
@@ -228,20 +234,23 @@ function pendingDownloadsHTML() {
 }
 function viewNext() {
   if (!db.length && !movies.length) return `<header class="ph"><h1>${t("tab_next")}</h1></header>` + onboardHTML();
-  const today = new Intl.DateTimeFormat(LANG, { weekday: "short", day: "numeric", month: "short", timeZone: viewTZ() }).format(new Date());
-  let h = `<header class="ph"><h1>${t("tab_next")}</h1><span class="sub">${esc(today)}</span></header>`;
   let up = upNextItems(db);
   if (dlPrompt && !up.some((x) => x.s.id === dlPrompt.id)) {
     const ps = db.find((x) => x.id === dlPrompt.id);
     if (ps) up = [{ s: ps, n: { s: dlPrompt.s, e: dlPrompt.e, name: "" } }, ...up];
   }
+  // The day is read in the viewer's zone (viewTZ), so it is the same day the schedule below uses.
+  const now = new Date(), tz = viewTZ();
+  const wk = new Intl.DateTimeFormat(LANG, { weekday: "long", timeZone: tz }).format(now);
+  const dayLong = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "long", timeZone: tz }).format(now);
+  let h = `<header class="ph"><div><span class="wk">${esc(wk)}</span><h1>${esc(dayLong)}</h1></div>${up.length ? `<span class="chip tint">${t("n_to_watch", { n: up.length })}</span>` : ""}</header>`;
   if (up.length) {
     h += heroCard(up[0]);
     const rest = up.slice(1);
-    // Every show is reachable from here: 8 rows, and "See all" opens the rest in place (it used to leave the page).
-    if (rest.length) h += `<div class="sec"><h2>${t("sec_ready")}</h2>${rest.length > 8
+    // Every show is reachable from here: 12 covers, and "See all" lays the rest out in place (it used to leave the page).
+    if (rest.length) h += `<div class="sec"><h2>${t("sec_ready")}</h2>${rest.length > 12
       ? `<button class="more" data-readytoggle="1" aria-expanded="${readyOpen}">${readyOpen ? t("show_less") : t("see_all")}</button>` : `<span class="meta">${t("more_n", { n: rest.length })}</span>`}</div>
-      <div class="rows">${(readyOpen ? rest : rest.slice(0, 8)).map(readyRow).join("")}</div>`;
+      <div class="wall${readyOpen ? " open" : ""}" data-sk="ready">${(readyOpen ? rest : rest.slice(0, 12)).map(readyCard).join("")}</div>`;
   } else if (db.length) h += caughtUpHTML();
   return h + pastHTML() + scheduleHTML() + pendingDownloadsHTML();
 }
@@ -545,6 +554,9 @@ let storageInfo = { text: "", legacy: 0 };
 const ZONE_ALIAS = { "Asia/Calcutta": "Asia/Kolkata", "Asia/Saigon": "Asia/Ho_Chi_Minh", "Asia/Katmandu": "Asia/Kathmandu", "Asia/Rangoon": "Asia/Yangon" };
 const zoneLabel = (z) => (ZONE_ALIAS[z] || z).replace(/_/g, " ");
 function zoneName() { const z = viewTZ(); return z ? zoneLabel(z) + " (" + tzOffsetLabel(z) + ")" : ""; }
+/* The phone's zone moved away from the home zone (a VPN, a trip) and the viewer has not answered yet. */
+let tzSeen = store("signal.tzseen") || "";
+const tzClashNow = () => zoneClash(TZ_PREF, deviceTZ(), Date.now()) && tzSeen !== deviceTZ();
 function zoneList() {
   let zs = [];
   try { zs = Intl.supportedValuesOf("timeZone"); } catch (e) { /* older browser: just the device zone and UTC */ }
@@ -559,8 +571,8 @@ function sheetSettings() {
   const lastExp = +store("signal.lastexport") || 0;
   return `<div class="phead"><button class="icon-btn" data-closesheet="1" aria-label="${t("back")}">${ico("back")}</button><h2 id="sheetTitle">${t("set_title")}</h2></div><div class="pbody">
     <div class="group"><h3><label for="langSel">${t("set_lang")}</label></h3><div class="card"><select id="langSel" class="field">${SUPPORTED_LANGS.map((l) => `<option value="${l}"${LANG === l ? " selected" : ""}>${LANG_NAMES[l]}</option>`).join("")}</select></div></div>
-    <div class="group"><h3><label for="tzSel">${t("set_tz")}</label></h3><div class="card"><select id="tzSel" class="field"><option value=""${TZ_PREF ? "" : " selected"}>${esc(t("set_tz_auto", { zone: zoneLabel(deviceTZ()) + " " + tzOffsetLabel(deviceTZ()) }))}</option>${zoneList().map((z) =>
-      `<option value="${esc(z)}"${TZ_PREF === z ? " selected" : ""}>${esc(zoneLabel(z))} (${tzOffsetLabel(z)})</option>`).join("")}</select><p>${t("set_tz_help")}</p></div></div>
+    <div class="group"><h3><label for="tzSel">${t("set_tz")}</label></h3><div class="card"><select id="tzSel" class="field"><option value="auto"${TZ_PREF ? "" : " selected"}>${esc(t("set_tz_auto", { zone: zoneLabel(deviceTZ()) + " " + tzOffsetLabel(deviceTZ()) }))}</option>${zoneList().map((z) =>
+      `<option value="${esc(z)}"${(ZONE_ALIAS[TZ_PREF] || TZ_PREF) === z ? " selected" : ""}>${esc(zoneLabel(z))} (${tzOffsetLabel(z)})</option>`).join("")}</select><p>${t("set_tz_help")}</p></div></div>
     <div class="group" id="services"><h3>${t("set_services")}</h3><div class="card"><p>${t("set_services_help")}</p><div class="chips">${visible.map((p) =>
       `<button class="fchip" data-svc="${p.id}" aria-pressed="${myPlatforms.includes(p.id)}">${esc(p.label)}</button>`).join("")}</div>
       ${plats.length > visible.length || svcAll ? `<button class="btn sm ghost self-start" data-svcall="1">${svcAll ? t("set_services_less") : t("set_services_all", { n: plats.length })}</button>` : ""}</div></div>
@@ -583,8 +595,13 @@ function sheetSettings() {
 function bannerHTML() {
   if (storageFull) return `<div class="banner warn" role="alert">${ico("alert")}<span class="txt">${t("b_storage_full")}</span><button class="btn sm" data-bannerexport="1">${t("b_export")}</button></div>`;
   if (syncing && syncProgress) return `<div class="banner" role="status">${ico("sync")}<span class="txt">${esc(t("b_syncing", { i: syncProgress.i, n: syncProgress.n, title: syncProgress.title }))}</span></div>`;
-  const stale = staleShows().length;
-  if (stale) return `<div class="banner">${ico("alert")}<span class="txt">${t("b_stale", { n: stale })}</span><button class="btn sm soft" data-syncall="1">${t("b_refresh")}</button></div>`;
+  if (tzClashNow()) {
+    const dv = deviceTZ();
+    return `<div class="banner" role="status">${ico("alert")}<span class="txt">${esc(t("b_tz", { now: zoneLabel(dv) + " (" + tzOffsetLabel(dv) + ")", home: zoneName() }))}</span><span class="acts"><button class="btn sm soft" data-tzkeep="1">${esc(t("b_tz_keep", { home: zoneLabel(TZ_PREF) }))}</button><button class="btn sm ghost" data-tzuse="1">${t("b_tz_use")}</button></span></div>`;
+  }
+  const staleList = staleShows(), stale = staleList.length;
+  const blocked = staleList.find((s) => s.syncFail && s.syncFail.code === "blocked");   // say why, so a VPN is the first thing tried
+  if (stale) return `<div class="banner">${ico("alert")}<span class="txt">${t("b_stale", { n: stale })}${blocked ? " " + esc(failWhy(blocked.syncFail)) : ""}</span><button class="btn sm soft" data-syncall="1">${t("b_refresh")}</button></div>`;
   const stk = db.filter((s) => !dropped(s) && stuck(s));
   if (stk.length) {
     return `<div class="banner">${ico("alert")}<span class="txt">${t("b_stuck", { n: stk.length })}</span><button class="btn sm ghost" data-stucktoggle="1" aria-expanded="${stuckOpen}">${t(stuckOpen ? "b_stuck_hide" : "b_stuck_see")}</button></div>`

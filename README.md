@@ -10,7 +10,8 @@ server, no analytics and nothing to sign up for.
 ## What it does
 
 - **Next.** What to watch now: one big card for the show you were on, one tap to
-  mark the episode, the rest of what is ready, what came out earlier and you have
+  mark the episode, the rest of what is ready as a wall of covers you swipe
+  sideways (tick on the art), what came out earlier and you have
   not ticked (dimmed, nothing disappears until you tick it), and what airs this week.
   Films you added before their release appear in both.
 - **Library.** Everything you track, Shows or Movies, with search and status

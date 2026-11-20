@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "4.4";
-const BUILD = 55;
+const APP_VERSION = "5.0";
+const BUILD = 56;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
@@ -25,6 +25,28 @@ const isZone = (z) => { try { return !!z && !!new Intl.DateTimeFormat("en", { ti
 function setTZ(z) { TZ_PREF = isZone(z) ? z : ""; }
 function deviceTZ() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; } }
 const viewTZ = () => TZ_PREF || deviceTZ() || undefined;
+/* Home zone (5.0). A VPN, a privacy setting or a trip changes the zone the phone reports, and with it
+   "today" and every air time. So the zone is chosen ONCE (the phone's own, the first time the app opens)
+   and kept. Saved: "" or nothing = never chosen, so pin the phone's zone now (also how 4.x users move
+   over); "auto" = the viewer asked to follow the phone; anything else = a zone they picked. */
+function bootZone(saved, device) {
+  if (saved === "auto") return { pref: "", save: "auto" };
+  if (isZone(saved)) return { pref: saved, save: saved };
+  return isZone(device) ? { pref: device, save: device } : { pref: "", save: null };
+}
+/* True when the phone now reports a zone whose clock differs from the home zone (a name alone, like
+   Asia/Calcutta for Asia/Kolkata, is not a difference). Used to ask once, never to switch by itself. */
+function zoneClash(pref, device, ms) {
+  if (!pref || !isZone(pref) || !isZone(device)) return false;
+  const a = tzOffsetMinutes(pref, new Date(ms)), b = tzOffsetMinutes(device, new Date(ms));
+  return a !== null && b !== null && a !== b;
+}
+/* After a new worker takes over: reload only when this page is older than the newest cache. A page
+   fetched fresh at open is already that build, and reloading it would just flash the screen. */
+function pageIsStale(cacheKeys, build) {
+  const n = (cacheKeys || []).map((k) => /^signal-v(\d+)$/.exec(k)).filter(Boolean).map((m) => +m[1]);
+  return !n.length || Math.max(...n) > build;
+}
 const YMD_DTF = new Map();
 function ymd(ms) {
   const tz = viewTZ() || "";
@@ -327,7 +349,8 @@ const syncable = (s) => !dropped(s) && !s.manual && (s.inProduction || s.upcomin
 function noteSyncFail(sh, e) {
   const m = (e && e.message) || "";
   if (m === "DAILY") sh.syncFail = { at: Date.now(), hard: true, code: "daily" };
-  else if (/^HTTP4/.test(m)) sh.syncFail = { at: Date.now(), hard: true, code: "gone" };
+  else if (/^HTTP(404|410)$/.test(m)) sh.syncFail = { at: Date.now(), hard: true, code: "gone" };
+  else if (/^HTTP(403|429|451)$/.test(m)) sh.syncFail = { at: Date.now(), hard: false, code: "blocked", status: m.slice(4) };   // a VPN exit TVmaze refuses, or a busy one: try again later
   else if (/^HTTP/.test(m)) sh.syncFail = { at: Date.now(), hard: false, code: "error", status: m.slice(4) };
   else sh.syncFail = { at: Date.now(), hard: false, code: "offline" };
 }

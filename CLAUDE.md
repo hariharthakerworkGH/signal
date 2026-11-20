@@ -80,17 +80,32 @@ action except those in `KEEP_MENU`.
   date-only episode is an all-day event, no hour invented. Capped at 40 per show.
 - **The viewer's zone.** Every clock time, "today" and the day a schedule row
   sits under is read in `viewTZ()`: the zone chosen in Settings (`TZ_PREF`,
-  stored as `signal.tz`), else the device's. No location is asked for or sent;
-  the zone name is all that is needed. A row's day is the viewer's day for its
-  air time, so the date and the time beside it can never disagree.
+  stored as `signal.tz`). No location is asked for or sent; the zone name is all
+  that is needed. A row's day is the viewer's day for its air time, so the date and
+  the time beside it can never disagree.
+- **Home zone (5.0): a VPN or a trip must not move it.** The app never looks at an IP
+  address, so the only way a VPN reaches it is through the phone's reported zone. So the
+  zone is PINNED: `bootZone()` saves the phone's zone the first time the app opens (and
+  for anyone who updates from 4.x with nothing saved), and from then on `signal.tz` is
+  what counts. `"auto"` is the one opt-in to follow the phone ("Follow this phone" in
+  Settings). If the phone later reports a zone whose UTC offset differs (`zoneClash()`),
+  a banner offers Keep or Switch; Keep stores `signal.tzseen` so it asks again only when
+  the phone's zone changes again. Known limit: if the very first open happens behind a
+  VPN, that zone is pinned; the Settings list fixes it. Whether an episode has aired is an
+  exact moment (`epLive`), so it never depends on the viewer's zone at all.
+- **Refresh failures (5.0).** Only HTTP 404 and 410 are hard ("gone", stop refreshing).
+  403, 429 and 451 are what a VPN exit address or a rate limit produce: they are soft
+  ("blocked"), the show is tried again, and the stale banner says TVmaze refused the
+  connection and that a VPN can cause it. A refusal must never retire a show.
 - **Buckets** come from `catOf()`, never stored: WATCHING (aired episodes left
   to watch), UP TO DATE (current, or a premiere still ahead), DONE (finished,
   ended, or nothing aired in 18 months). `bucketOverride` is the user's manual
   say and always wins; a dropped show keeps its history and leaves tracking.
 - **Up next** (`upNextItems`) is every show in WATCHING, most recently watched first,
   then shows not yet started by what aired last. Nothing is left out for being old: only
-  a tick (watched, or the show dropped) takes a show off Next. "See all" opens the rest in
-  place. **Released earlier** (`pastItems`, `pastHTML`) sits dimmed above "This week":
+  a tick (watched, or the show dropped) takes a show off Next. The first show is the hero;
+  the rest are the **Ready wall** (5.0): a row of covers you swipe sideways, the tick on the
+  art, 12 shown and "See all" lays all of them out three across in place. **Released earlier** (`pastItems`, `pastHTML`) sits dimmed above "This week":
   every aired episode not ticked watched or downloaded, the last 7 days when collapsed,
   all (cap 300) when opened. Rule: a list on Next may never empty by itself because time
   passed. **Films (4.4)** follow the same rule: one you added before (or on) its release
@@ -125,11 +140,16 @@ copy), it names each script as `?v=<BUILD>`, and a new `sw.js` takes over at onc
 (`skipWaiting` + `clients.claim`). `registerSW()` in `app.js` checks for a new
 worker at start and every time the app becomes visible; on `controllerchange` it
 saves the library, then reloads. It waits if a dialog or a field is in use and
-reloads when the app is left, and it never reloads twice within 20 seconds. The
-splash (`#splash`, drawn from tokens, about 1.25 s, a moment under reduced motion)
-covers the start and any update; an inline script removes it after 10 s if the
-app cannot start. The first open after 4.0 still needs one extra open, because the
-4.0 worker has no reload.
+reloads when the app is left, and it never reloads twice within 20 seconds. Two
+rules keep that honest (5.0, both proved in a browser against a served copy):
+the reload is skipped when the page is already the newest build (`pageIsStale()`
+compares `BUILD` with the newest `signal-v<N>` cache), so a fresh open after a release
+boots once, on the new build, with no second load; and only the FIRST
+`controllerchange` of a first-visit page (the worker claiming it) is ignored, never
+the later ones, or a page opened before the worker existed and left open would miss
+every update. The splash (`#splash`, drawn from tokens, about 1.25 s, a moment under
+reduced motion) covers the start and any update; an inline script removes it after
+10 s if the app cannot start.
 
 ## Storage
 
@@ -170,9 +190,10 @@ language can be added without redoing the layout. None is shipped yet.
 add paths, a topbar, and a settings sheet holding everything else. 4.0 keeps the
 look and rebuilds the map as three places, each with one job:
 
-- **Next** (`viewNext`): one hero card for the show you were last on with the one
-  filled button, then "Ready to watch" rows, this week's schedule, and a single
-  "N to download" line that expands.
+- **Next** (`viewNext`): the day in large type (weekday over date, in the viewer's zone)
+  with a count chip, one hero card for the show you were last on with the one filled
+  button, then the "Ready to watch" wall of covers, what came out earlier (dimmed),
+  this week's schedule, and a single "N to download" line that expands.
 - **Library** (`viewLibrary`): Shows | Movies, search, status chips with counts,
   grid or list. Settings is the icon in its header (and the rail's foot on wide).
 - **Find** (`viewFind`): one search for shows and films; idle, it is Discover.
@@ -185,21 +206,29 @@ beside it in `#sheet.pane` (no scrim, list stays usable); non-title sheets becom
 centred panel. Light and dark follow `prefers-color-scheme`; the light set has its
 own tokens and clears the same 4.5:1 rule.
 
-The interface is near-neutral graphite so the posters carry the colour; it is made
-of hairlines and small type, not cards and big buttons. 3.0 looked like a template
-because it was sized like one (15px type, 40-44px controls, 12-20px corners, four
-accent colours). Dials: ENERGY 2 / RHYTHM 3 / MOTION 2, density high - screens
-differ on purpose (a hero card on Next, a poster grid in Library, a backdrop and
-episode rows on a show). The identity motif is the app icon, a filled square in a
-rounded square: every status marker is a small rounded square, never a circle.
+**Poster wall (5.0).** 4.x was correct and quiet, and for a phone it was a utility. 5.0
+keeps the map and the amber and makes it something to have on a phone: a near-black
+graphite with a cool tint so the posters carry the colour, big round touch targets, a
+hero whose blurred backdrop and tilted cover come from the show itself, a sideways wall of
+covers with the tick on the art, and a tab bar that floats as a pill (a left rail from
+720px). Dials: ENERGY 3 / RHYTHM 3 / MOTION 3, density medium. The identity motif is the
+app icon, a filled square in a rounded square: every status marker AND every tick is a
+rounded square, never a circle. **The tick (`.tick`, `checkBtn`)** is an empty rounded
+square on a cover or a row; ticking it fills it amber and draws the check (cyan for
+"downloaded"). app.js puts class `done` on the card or row, waits 260 ms so the fill is
+seen, then saves the mark and redraws; with reduced motion there is no wait. Only
+transform, opacity, colour and a stroke animate. A tick is 44px; the episode box in a
+show's list is 32px.
 
-Scale: 14px body, 12-13px for secondary text, 11px for chips and tab labels. Controls
-are 28px (small), 34px (default), 36px (icon button), 40-44px for the one main
-button and the search field; tab bar 56px (a 76px rail from 720px). No topbar.
-Corners 4px (chips, thumbs), 6-8px (buttons, cards, posters), 12px (panels). Rows are
-separated by hairlines (`--hair`), not by cards or hover boxes. A figure that is
-only a figure (73 episodes to watch) is a line of text, not a card. On a phone a
-row's action is an icon button (`.btn.ic` with a `.lbl` kept for screen readers).
+Scale: 15px body, 12-13px for secondary text, 11px for tab labels. Controls are 36px
+(small), 40px (default), 44px (icon button, tick, field), 50px for the one main button
+(`.btn.big`, 16px radius) and 52px for the search field; the pill tab bar is 56px tall
+buttons inside a 6px frame (a 76px rail from 720px). Corners: 8px (small), 14px (buttons,
+chips, fields, tiles), 18-20px (covers, cards, banners), 24px (hero, sheets, menus).
+Rows have no hairlines or cards; the gap and the thumbs separate them. A figure that
+is only a figure (73 episodes to watch) is a line of text, not a card. A repeated
+action is a tick, not a labelled button. Gradients are allowed only as the scrim that
+keeps text readable over a poster.
 
 Typeface: DM Sans, shipped in `fonts/`, weights 400-600 only (that is all the
 file has). Open and geometric, easy to read small on dark, covers Latin Extended.
@@ -207,9 +236,9 @@ Other scripts fall through to the phone's own UI font. No webfont is fetched.
 
 Amber is the one deliberate accent. **The solid amber button is for the one main
 action on a screen** (the hero's "Mark watched", a title page's sticky bar,
-onboarding). Every
-repeated action (each card, each row) uses `.btn.soft`, a selected chip is a tinted
-outline, and a rating or "watched" tag is `.chip.tint`. `--cyan` (muted) is only for
+onboarding). Every repeated action (each cover, each row) is a `.tick`; a quieter
+labelled one uses `.btn.soft`, a selected chip is a tinted outline, and a rating or
+"watched" tag is `.chip.tint`. `--cyan` (muted) is only for
 "downloaded" and for links; red is for what cannot be undone. Violet is gone: a
 future date is plain dim text. Episode codes are dim, not coloured. Do not add a
 colour.
@@ -220,10 +249,10 @@ shadows are tinted with the page colour).
 
 Three text tiers - `--text`, `--dim`, `--faint` - and **every one clears WCAG AA
 (4.5:1) on all five surfaces** it can land on: `--well`, `--bg`, `--card`, `--up`
-and `--hi` (the toast), in both themes. Measured in 4.0: the lowest in dark is
-`--faint` on `--hi` at 5.08, in light `--faint` on `--hi` at 4.72; every accent
-and the red clear 4.5 on all five. The edge of an input is `--edge`, 3:1 on the
-surfaces it sits on. The light amber fill is only 2.06:1 on white, so a filled
+and `--hi` (the toast), in both themes. Measured in 5.0: the lowest in dark is
+`--faint` (#9594A6) on `--hi` (#292934) at 4.84, in light `--faint` on `--hi` at 4.72;
+every accent and the red clear 4.5 on all five. The edge of an input or an empty tick
+is `--edge` (#7C7C8F dark), 3:1 on the surfaces it sits on (3.52 on `--hi`). The light amber fill is only 2.06:1 on white, so a filled
 amber control always carries a dark ink glyph or label (9:1) and an unchecked box
 keeps its `--edge` outline. A dark theme makes it easy to add
 a quieter grey that fails; don't. Measure any new colour against all five first.

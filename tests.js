@@ -130,6 +130,45 @@ test("zone: the schedule is in the order of the days its rows show, even for a d
     });
   } finally { setTZ(""); }
 });
+/* ---------- a VPN must not move the home zone (5.0) ---------- */
+// A VPN, a privacy setting or a trip changes the zone the phone reports. "Today" and every air time
+// must keep reading in the zone chosen once, until the viewer says otherwise.
+test("home zone: first open pins the phone's zone, an old blank setting pins too, 'auto' stays following", () => {
+  eq(bootZone(null, "Asia/Kolkata"), { pref: "Asia/Kolkata", save: "Asia/Kolkata" });
+  eq(bootZone("", "Asia/Kolkata"), { pref: "Asia/Kolkata", save: "Asia/Kolkata" }, "4.x stored a blank for 'automatic'");
+  eq(bootZone("Europe/London", "Asia/Kolkata"), { pref: "Europe/London", save: "Europe/London" });
+  eq(bootZone("auto", "Asia/Kolkata"), { pref: "", save: "auto" });
+  eq(bootZone("Not/AZone", "Asia/Kolkata"), { pref: "Asia/Kolkata", save: "Asia/Kolkata" }, "a damaged value never sticks");
+  eq(bootZone(null, ""), { pref: "", save: null }, "no zone from the phone: nothing to pin");
+});
+test("home zone: once pinned, a VPN that moves the phone's zone does not move today or the air times", () => {
+  const real = deviceTZ;
+  try {
+    setTZ(bootZone(null, "Asia/Kolkata").pref);
+    deviceTZ = () => "America/Los_Angeles";   // the VPN exit
+    atTime("2026-11-21T20:00:00Z", () => {     // 1:30 am Sunday in Delhi, 12:00 Saturday in Los Angeles
+      eq(todayISO(), "2026-11-22", "still Delhi's day");
+      yes(/1:30/.test(fmtTime("2026-11-21T20:00:00Z")), "air time still in Delhi: " + fmtTime("2026-11-21T20:00:00Z"));
+    });
+    setTZ(bootZone("auto", "Asia/Kolkata").pref);   // the opt-in: follow the phone
+    atTime("2026-11-21T20:00:00Z", () => eq(todayISO(), "2026-11-21", "automatic follows the VPN, which is why it is not the default"));
+  } finally { deviceTZ = real; setTZ(""); }
+});
+test("home zone: the phone saying a different zone is a clash only when the clock really differs", () => {
+  const at = Date.parse("2026-11-21T12:00:00Z");
+  yes(!zoneClash("Asia/Kolkata", "Asia/Calcutta", at), "same clock, other name");
+  yes(!zoneClash("Asia/Kolkata", "Asia/Kolkata", at));
+  yes(zoneClash("Asia/Kolkata", "America/Los_Angeles", at), "a VPN exit elsewhere");
+  yes(!zoneClash("", "America/Los_Angeles", at), "following the phone: nothing to clash with");
+  yes(!zoneClash("Asia/Kolkata", "", at) && !zoneClash("Not/AZone", "Asia/Kolkata", at), "unknown zones never raise it");
+});
+test("update: a new worker reloads the page only when the page is older than the newest cache", () => {
+  yes(!pageIsStale(["signal-v56"], 56), "the page was fetched fresh and is already the new build");
+  yes(pageIsStale(["signal-v56"], 55), "this page is the old build");
+  yes(!pageIsStale(["other", "signal-v56", "signal-v55"], 56));
+  yes(pageIsStale([], 56), "cannot tell: reload to be safe");
+});
+
 test("drop hour: a Netflix episode with only a date opens 2 hours into that date in Pacific, others stay on end-of-date", () => {
   const e = { e: 1, air: "2026-11-10", ts: null }, nf = { tz: null, watchOn: ["Netflix"] }, hulu = { tz: null, watchOn: ["Hulu"] };
   atTime("2026-11-10T09:59:00Z", () => yes(!epLive(e, nf), "before 2am Pacific"));
@@ -268,6 +307,13 @@ test("refresh failures: a daily serial and a vanished show are hard, a server hi
   noteSyncFail(a, new Error("DAILY")); noteSyncFail(b, new Error("HTTP404")); noteSyncFail(c, new Error("HTTP503")); noteSyncFail(d, new TypeError("Failed to fetch"));
   eq([stuck(a), stuck(b), stuck(c), stuck(d)], [true, true, false, false]);
   eq([a.syncFail.code, b.syncFail.code, c.syncFail.code, d.syncFail.code], ["daily", "gone", "error", "offline"]);
+});
+// A VPN exit address TVmaze refuses (403) or a busy one it slows (429) used to mark the show "no longer listed"
+// for good, and a stuck show is never refreshed again, even after the VPN is off.
+test("refresh failures: a refused or rate-limited connection (VPN) is soft and retries, only 404 and 410 are hard", () => {
+  const r = (m) => { const s = {}; noteSyncFail(s, new Error(m)); return s; };
+  eq([stuck(r("HTTP403")), stuck(r("HTTP429")), stuck(r("HTTP451")), stuck(r("HTTP404")), stuck(r("HTTP410"))], [false, false, false, true, true]);
+  eq([r("HTTP403").syncFail.code, r("HTTP429").syncFail.code, r("HTTP404").syncFail.code], ["blocked", "blocked", "gone"]);
 });
 test("refresh failures: a reason stored as English text by v45 still reads", () => yes(failWhy({ why: "old text" }) === "old text"));
 test("refresh failures: a success clears the note", () => { const s = { syncFail: { hard: true } }; clearSyncFail(s); yes(!s.syncFail); });
