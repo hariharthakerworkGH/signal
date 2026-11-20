@@ -108,7 +108,14 @@ action except those in `KEEP_MENU`.
   art, 12 shown and "See all" lays all of them out three across in place. **Released earlier** (`pastItems`, `pastHTML`) sits dimmed above "This week":
   every aired episode not ticked watched or downloaded, the last 7 days when collapsed,
   all (cap 300) when opened. Rule: a list on Next may never empty by itself because time
-  passed. **Films (4.4)** follow the same rule: one you added before (or on) its release
+  passed. **Since 5.1 the ticked ones stay in view too** (`pastItems(shows, withinMs, seenMs)`
+  returns each row with `st` = `w` watched, `d` downloaded only, empty = still to do): collapsed it
+  is the last 7 days of everything, opened it is everything still to do plus the last 30 days of
+  ticked rows, so a person can scroll up from "This week" and see what they missed and what they
+  marked. A ticked row has a filled tick (`.seen`); tapping a watched one unmarks it, a
+  downloaded-only one is a plain marker, not a button. `seenMs` is a window on purpose: a real
+  library holds 20,000 ticked episodes and the unwindowed list took 390 ms a redraw. Rows are
+  ordered by the day printed on them, then by moment. **Films (4.4)** follow the same rule: one you added before (or on) its release
   day, not yet ticked, is in "Released earlier" from that day (`pastFilms`) and in
   "This week" while it is still ahead (`comingFilms`). A film added after it was out, or
   with no add date, stays in Library > Movies only.

@@ -279,6 +279,23 @@ test("past list: an episode with a real air time is placed at that moment, and o
   });
 });
 
+test("past list (5.1): with withSeen, yesterday keeps its marks: watched w, downloaded d, still to do empty", () => {
+  atTime("2026-11-20T12:00:00Z", () => {
+    const sh = show({ id: 1, seasons: [{ season: 1, eps: [ep(1, { air: "2026-11-18" }), ep(2, { air: "2026-11-19" }), ep(3, { air: "2026-11-19" }), ep(4, { air: "2026-11-25" })] }], watched: { "1-1": T(1) }, dl: { "1-2": 1 } });
+    eq(pastItems([sh], null, 30 * 864e5).map((x) => x.e + x.st), ["2d", "3", "1w"]);   // newest day first; two on one day go by episode number
+    eq(pastItems([sh], null, 0.5 * 864e5).map((x) => x.e + x.st), ["2d", "3"]);   // ticked ones older than the window are left out, so a 20,000-row library stays quick
+    eq(pastItems([sh], null).map((x) => x.e), [3]);   // without withSeen nothing changes: only what is still to do
+  });
+});
+test("films (5.1): withSeen lists a watched film with st w, and the default still leaves it out", () => {
+  atTime("2026-11-20T12:00:00Z", () => {
+    const ms = [film("a", "2026-11-19", "2026-11-01T10:00:00Z", { watched: true }), film("b", "2026-11-19", "2026-11-01T10:00:00Z")];
+    eq(pastFilms(ms, null, 30 * 864e5).map((x) => x.m.id + x.st), ["aw", "b"]);
+    eq(pastFilms(ms, null, 0.5 * 864e5).map((x) => x.m.id + x.st), ["b"]);
+    eq(pastFilms(ms, null).map((x) => x.m.id), ["b"]);
+  });
+});
+
 /* ---------- films on Next (4.4) ---------- */
 const film = (id, rel, added, extra) => ({ id, title: id, releaseDate: rel, addedAt: added ? Date.parse(added) : null, watched: false, ...extra });
 test("films: one added BEFORE its release shows as released from its release day, until it is ticked", () => {

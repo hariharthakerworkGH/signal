@@ -11,8 +11,9 @@ server, no analytics and nothing to sign up for.
 
 - **Next.** What to watch now: one big card for the show you were on, one tap to
   mark the episode, the rest of what is ready as a wall of covers you swipe
-  sideways (tick on the art), what came out earlier and you have
-  not ticked (dimmed, nothing disappears until you tick it), and what airs this week.
+  sideways (tick on the art), what came out earlier (dimmed, newest at the bottom, each
+  with its tick filled or empty so you can scroll up and see what you missed; nothing
+  unticked disappears), and what airs this week.
   Films you added before their release appear in both.
 - **Library.** Everything you track, Shows or Movies, with search and status
   filters. Open a show for a numbered list of episodes with their titles and air

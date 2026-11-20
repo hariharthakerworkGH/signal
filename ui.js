@@ -174,35 +174,48 @@ function scheduleHTML() {
 }
 /* What came out and has not been ticked, dimmed, directly above the week ahead so the two read as one
    timeline (older at the top, today at the seam). It never empties by itself: only a tick (or a
-   download tick) removes a row. Collapsed: the last 7 days (or the 3 newest when that is empty). */
+   download tick) removes a row. Since 5.1 the ticked ones stay in view too (filled tick), so a person
+   can scroll up from "This week" and see yesterday and the days before with their marks: collapsed,
+   the last 7 days of everything; open, everything still to do plus the last 30 days of ticked rows. */
 const PAST_CAP = 300;   // the real library held 137; the cap only protects a phone from a four-figure backlog
+const SEEN_DAYS_OPEN = 30;
 function pastHTML() {
-  const all = [...pastItems(db, null), ...pastFilms(movies, null)].sort((a, b) => b.ms - a.ms);
-  if (!all.length) return "";
-  const week = all.filter((x) => Date.now() - x.ms <= 7 * 24 * 3600e3);
-  const base = week.length ? week : all.slice(0, 3);
-  const shown = (pastOpen ? all.slice(0, PAST_CAP) : base.slice(0, 6)).slice().reverse();
-  let h = `<div class="sec"><h2>${t("sec_past")}</h2>${all.length > shown.length || pastOpen
-    ? `<button class="more" data-pasttoggle="1" aria-expanded="${pastOpen}">${pastOpen ? t("show_less") : t("past_all", { n: all.length })}</button>`
-    : `<span class="meta">${all.length}</span>`}</div><div class="rows past">`;
+  const seenMs = SEEN_DAYS_OPEN * 864e5;
+  // By the day printed on the row first (a date-only episode opens at the END of its day in the show's zone, which can
+  // be later than a timed episode of the next day), then by the moment, so the day labels always read in order.
+  const all = [...pastItems(db, null, seenMs), ...pastFilms(movies, null, seenMs)]
+    .sort((a, b) => b.dateStr.localeCompare(a.dateStr) || b.ms - a.ms);
+  const todo = all.filter((x) => !x.st), age = (x) => (Date.now() - x.ms) / 864e5;
+  const week = all.filter((x) => age(x) <= 7);
+  const base = week.length ? week : todo.slice(0, 3);
+  const full = all;
+  const shown = (pastOpen ? full.slice(0, PAST_CAP) : base.slice(0, 8)).slice().reverse();
+  if (!shown.length) return "";
+  let h = `<div class="sec"><h2>${t("sec_past")}</h2>${full.length > shown.length || pastOpen
+    ? `<button class="more" data-pasttoggle="1" aria-expanded="${pastOpen}">${pastOpen ? t("show_less") : t("past_all", { n: full.length })}</button>`
+    : todo.length ? `<span class="meta">${todo.length}</span>` : ""}</div><div class="rows past">`;
   let day = null;
   for (const x of shown) {
     const p = dayParts(x.dateStr), first = x.dateStr !== day; day = x.dateStr;
     const when = `<span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b><span>${esc(p.mo)}</span>` : ""}</span>`;
+    const seen = x.st ? " seen" : "";
     if (x.m) {
-      h += `<div class="row dense"><button class="main" data-film="${esc(x.m.id)}">${when}${thumbHTML(x.m.poster, x.m.title)}
+      h += `<div class="row dense${seen}"><button class="main" data-film="${esc(x.m.id)}">${when}${thumbHTML(x.m.poster, x.m.title)}
       <span class="mid"><b class="clip">${esc(x.m.title)}</b><span class="tag">${t("film_tag")}</span></span></button>
-      ${checkBtn("data-mvw", esc(x.m.id), x.m.title + ": " + t("mv_mark_watched"))}</div>`;
+      ${checkBtn("data-mvw", esc(x.m.id), x.m.title + ": " + t(x.st ? "mv_unwatch" : "mv_mark_watched"))}</div>`;
       continue;
     }
     const code = codeOf(x.s, x.e);
-    h += `<div class="row dense"><button class="main" data-show="${x.sh.id}">
+    // Downloaded but not watched is shown, not a button: a tap there would mean "watched", which is a different thing.
+    const tick = x.st === "d" ? `<span class="tick cyan" role="img" aria-label="${esc(t("seen_dl_aria", { title: x.sh.title, code }))}">${ico("check")}</span>`
+      : checkBtn("data-ep", x.sh.id + ":" + x.s + ":" + x.e, x.st ? t("seen_w_aria", { title: x.sh.title, code }) : x.sh.title + ": " + t("btn_mark_ep", { code }));
+    h += `<div class="row dense${seen}"><button class="main" data-show="${x.sh.id}">
       ${when}${thumbHTML(x.sh.poster, x.sh.title)}
       <span class="mid"><b class="clip">${esc(x.sh.title)}</b><span class="tag">${code}${x.name ? " · " + esc(x.name) : ""}</span></span></button>
-      ${checkBtn("data-ep", x.sh.id + ":" + x.s + ":" + x.e, x.sh.title + ": " + t("btn_mark_ep", { code }))}</div>`;
+      ${tick}</div>`;
   }
   h += `</div>`;
-  if (pastOpen && all.length > PAST_CAP) h += `<p class="note">${t("past_more", { n: all.length - PAST_CAP })}</p>`;
+  if (pastOpen && full.length > PAST_CAP) h += `<p class="note">${t("past_more", { n: full.length - PAST_CAP })}</p>`;
   return h;
 }
 function pendingDownloadsHTML() {

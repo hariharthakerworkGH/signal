@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "5.0";
-const BUILD = 56;
+const APP_VERSION = "5.1";
+const BUILD = 57;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
@@ -280,17 +280,22 @@ function upNextItems(shows) {
 }
 /* Episodes already out and not ticked, newest first, as {sh, s, e, name, ms, dateStr}.
    withinMs limits how far back (null = all). An episode marked watched OR downloaded
-   is done with; a dropped show has none. Used for the "Released earlier" list. */
-function pastItems(shows, withinMs) {
-  const now = Date.now(), out = [];
+   is done with; a dropped show has none. Used for the "Released earlier" list.
+   seenMs (5.1) also returns ticked ones that came out within that many ms, so the list can show
+   yesterday with its marks: each row carries st = "w" (watched), "d" (downloaded only) or ""
+   (still to do). The window matters: a real library holds 20,000 ticked episodes. */
+function pastItems(shows, withinMs, seenMs) {
+  const now = Date.now(), out = [], seenCut = seenMs ? ymd(now - seenMs - 2 * 864e5) : "";   // 2 days of slack for zones
   for (const sh of shows) {
     if (dropped(sh)) continue;
     for (const se of sh.seasons || []) for (const ep of se.eps || []) {
       const k = epK(se.season, ep.e);
-      if ((sh.watched && sh.watched[k]) || (sh.dl && sh.dl[k]) || !aired(sh, ep)) continue;
+      const w =!!(sh.watched && sh.watched[k]), d = !!(sh.dl && sh.dl[k]);
+      if ((w || d) && (!seenMs || (!ep.ts && ep.air && ep.air < seenCut))) continue;   // cheap date test first: airMoment below is the costly part
+      if (!aired(sh, ep)) continue;
       const ms = ep.ts ? new Date(ep.ts).getTime() : (ep.air ? airMoment(ep, sh) : 0);
-      if (!ms || ms > now || (withinMs != null && now - ms > withinMs)) continue;
-      out.push({ sh, s: se.season, e: ep.e, name: ep.name || "", ms, dateStr: epDate(ep) });
+      if (!ms || ms > now || (withinMs != null && now - ms > withinMs) || ((w || d) && now - ms > seenMs)) continue;
+      out.push({ sh, s: se.season, e: ep.e, name: ep.name || "", ms, dateStr: epDate(ep), st: w ? "w" : d ? "d" : "" });
     }
   }
   return out.sort((a, b) => b.ms - a.ms || a.sh.id - b.sh.id || a.s - b.s || a.e - b.e);
@@ -299,13 +304,13 @@ function pastItems(shows, withinMs) {
    release day on, newest first, as {m, ms, dateStr}. A film added after it was out, or with
    no known add date, is your own watchlist, not something you were waiting for, so it
    stays in the Library only. Like episodes, nothing here expires by time. */
-function pastFilms(movies, withinMs) {
+function pastFilms(movies, withinMs, seenMs) {
   const now = Date.now(), td = todayISO(), out = [];
   for (const m of movies || []) {
-    if (m.watched || !m.releaseDate || m.releaseDate > td || !m.addedAt || ymd(m.addedAt) > m.releaseDate) continue;
+    if ((m.watched && !seenMs) || !m.releaseDate || m.releaseDate > td || !m.addedAt || ymd(m.addedAt) > m.releaseDate) continue;
     const ms = new Date(m.releaseDate + "T00:00:00").getTime();
-    if (withinMs != null && now - ms > withinMs) continue;
-    out.push({ m, ms, dateStr: m.releaseDate });
+    if ((withinMs != null && now - ms > withinMs) || (m.watched && now - ms > seenMs)) continue;
+    out.push({ m, ms, dateStr: m.releaseDate, st: m.watched ? "w" : "" });
   }
   return out.sort((a, b) => b.ms - a.ms || String(a.m.id).localeCompare(String(b.m.id)));
 }

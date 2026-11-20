@@ -236,6 +236,11 @@ select.field { padding-inline:12px 8px; }
 .done .tick { background:var(--amber); border-color:var(--amber); color:var(--ink); transform:scale(1.12); }
 .done .tick.cyan { background:var(--cyan); border-color:var(--cyan); color:var(--cyan-ink); }
 .done .tick .ico { stroke-dashoffset:0; }
+/* A row that is already ticked (Released earlier shows yesterday with its marks): filled, not enlarged. */
+.seen .tick { background:var(--amber); border-color:var(--amber); color:var(--ink); }
+.seen .tick.cyan { background:var(--cyan); border-color:var(--cyan); color:var(--cyan-ink); }
+.seen .tick .ico { stroke-dashoffset:0; }
+span.tick { cursor:default; }
 
 /* ---------- section scaffolding ---------- */
 .sec { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:28px 0 8px; }
@@ -303,6 +308,8 @@ select.field { padding-inline:12px 8px; }
    clears 4.5:1 and the tick stays full strength. */
 .rows.past .row .mid b { color:var(--dim); font-weight:400; }
 .rows.past .row:hover .mid b { color:var(--at); }
+.rows.past .row.seen .mid b, .rows.past .row.seen:hover .mid b { color:var(--faint); }
+.rows.past .row.seen .thumb { opacity:.4; }
 .rows.past .row.dense .thumb { width:46px; height:68px; }
 .rows.past .thumb { opacity:.6; }
 .rows.past .when span, .rows.past .when b { color:var(--faint); }
