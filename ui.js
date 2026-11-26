@@ -27,6 +27,7 @@ const ICONS = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   chev: '<path d="M9 5l7 7-7 7"/>',
   down: '<path d="M6 9.5l6 6 6-6"/>',
+  up: '<path d="M6 14.5l6-6 6 6"/>',
   more: '<circle cx="5.5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
@@ -52,7 +53,7 @@ let viewMode = store("signal.view") || "grid";
 let showSort = store("signal.sort") || "auto";
 let movTab = "watchlist", movFilter = "", movLimit = 60, movSort = store("signal.movsort") || "auto";
 let discLang = "all", discOpen = null;
-let schedOpen = false, readyOpen = false, pastOpen = false, dlOpen = false, dlShowAll = {}, stuckOpen = false, menuOpen = false, svcAll = false;
+let readyOpen = false, calBack = 0, calLater = false, calNext = 7, dlOpen = false, dlShowAll = {}, stuckOpen = false, menuOpen = false, svcAll = false;
 let selSeason = {}, aboutOpen = {}, confirmDel = null, movConfirmDel = null;
 let findType = "all", addQ = "", addRes = { state: "idle", shows: [], movies: [], q: "" };
 
@@ -118,22 +119,29 @@ function onboardHTML() {
     <button class="btn primary" data-openadd="1">${ico("plus", "sm")}${t("onboard_cta")}</button>
     <button class="btn ghost" data-ttpick="shows">${t("set_tt_shows")}</button></div>`;
 }
-function heroCard(x) {
-  const s = x.s, n = x.n, pr = dlPrompt && dlPrompt.id === s.id ? dlPrompt : null;
-  const a = airedTotal(s), w = wCount(s), code = codeOf(pr ? pr.s : n.s, pr ? pr.e : n.e);
-  const line = pr ? t("asked_dl", { code }) : [code, n.name, w + " " + t("d_of_watched", { a })].filter(Boolean).join(" · ");
-  return `<section class="hcard">${backdropHTML(s.poster)}<span class="hpst" aria-hidden="true">${coverInner(s.poster, s.title)}</span><div class="hin">
-    <button class="open" data-show="${s.id}" aria-label="${esc(t("open_show", { title: s.title }))}"><span class="kick">${t("continue_watching")}</span><h2 class="clip">${esc(s.title)}</h2><span class="l2 clip">${esc(line)}</span></button>
-    <div class="go">${pr ? `<button class="btn big cyan" data-dlnext="${s.id}:${pr.s}:${pr.e}">${ico("download")}${t("btn_mark_downloaded")}</button>`
-         : `<button class="btn big primary" data-next="${s.id}">${ico("check")}${t("btn_mark_ep", { code })}</button>`}
-      <button class="btn big soft ic" data-show="${s.id}" aria-label="${esc(t("open_show", { title: s.title }))}">${ico("chev")}</button></div></div></section>`;
+/* "today", "yesterday", or "Sun, 22 Nov": the words for the near days come from the browser. */
+const relDay = (iso) => { const n = daysAway(iso); return n !== null && n >= -1 && n <= 1 ? relDayWord(n).toLowerCase()
+  : new Date(iso + "T00:00:00").toLocaleDateString(loc(), { weekday: "short", day: "numeric", month: "short" }); };
+/* After a tick the app asks once whether the episode is downloaded too. It used to sit on the hero card; the hero is gone. */
+function dlAskHTML() {
+  const sh = dlPrompt && db.find((x) => x.id === dlPrompt.id); if (!sh) return "";
+  return `<div class="dlask"><span class="txt"><b class="clip">${esc(sh.title)}</b>${esc(t("asked_dl", { code: codeOf(dlPrompt.s, dlPrompt.e) }))}</span>
+    <button class="btn cyan" data-dlnext="${sh.id}:${dlPrompt.s}:${dlPrompt.e}">${ico("download")}${t("btn_mark_downloaded")}</button></div>`;
 }
-/* One cover on the Ready wall: the episode code on the art, the tick in the corner, the title under it. */
-function readyCard(x) {
-  const s = x.s, n = x.n, left = Math.max(0, airedTotal(s) - wCount(s)), code = codeOf(n.s, n.e);
+/* One cover in the "Ready to watch" carousel: a show (its next unticked episode, how many are left, when the newest came out)
+   or a film that is out and not ticked. The tick is on the art. */
+function waitCard(x) {
+  const out = x.d ? `<small class="clip${daysAway(x.d) >= -1 ? " fresh" : ""}">${esc(t("out_on", { when: relDay(x.d) }))}</small>` : "";
+  if (x.m) {
+    const m = x.m;
+    return `<div class="pc"><div class="art"><button class="open" data-film="${esc(m.id)}" aria-label="${esc(m.title)}">${coverInner(m.poster, m.title)}</button>
+      <span class="badge">${t("film_tag")}</span>${checkBtn("data-mvw", esc(m.id), m.title + ": " + t("mv_mark_watched"))}</div>
+      <b class="clip">${esc(m.title)}</b>${out}</div>`;
+  }
+  const s = x.sh, left = Math.max(0, airedTotal(s) - wCount(s)), code = codeOf(x.n.s, x.n.e);
   return `<div class="pc"><div class="art"><button class="open" data-show="${s.id}" aria-label="${esc(t("open_show", { title: s.title }))}">${coverInner(s.poster, s.title)}</button>
     <span class="badge">${code}</span>${checkBtn("data-next", s.id, s.title + ": " + t("btn_mark_ep", { code }))}</div>
-    <b class="clip">${esc(s.title)}</b><small class="clip">${t("left_n", { n: left })}</small></div>`;
+    <b class="clip">${esc(s.title)}</b><small class="clip">${t("left_n", { n: left })}</small>${out}</div>`;
 }
 function caughtUpHTML() {
   const nxt = scheduleItems(db, null)[0];
@@ -141,82 +149,58 @@ function caughtUpHTML() {
   return `<div class="empty">${markSvg()}<h3>${t("caught_title")}</h3><p>${esc(body)}</p>
     <button class="btn" data-tab="find">${t("go_find")}</button></div>`;
 }
-function dayParts(d) {
-  const dt = new Date(d + "T00:00:00");
-  return { wd: new Intl.DateTimeFormat(LANG, { weekday: "short" }).format(dt), n: dt.getDate(), mo: new Intl.DateTimeFormat(LANG, { month: "short" }).format(dt) };
+/* ---- the one calendar (5.2) ----
+   A single timeline, every day once, oldest at the top: Earlier button, yesterday, today, the days ahead, Later button.
+   A row is a tick (watched, downloaded, to do) when the episode is out and a time when it is still to come, so
+   "what aired yesterday and did I watch it" and "what is on today" are the same list read from the same place. */
+function dayHead(d) {
+  const n = daysAway(d), dt = new Date(d + "T00:00:00"), rtf = new Intl.RelativeTimeFormat(loc(), { numeric: "auto" });
+  const wd = dt.toLocaleDateString(loc(), { weekday: "long" }), dm = dt.toLocaleDateString(loc(), { day: "numeric", month: "short" });
+  return n >= -1 && n <= 1 ? { main: relDayWord(n), sub: wd + ", " + dm } : { main: wd, sub: dm + (n > 1 && n <= 7 ? " · " + rtf.format(n, "day") : "") };
 }
-/* The week ahead: episodes and premieres, plus films you added before their release. */
-function scheduleEntries(span) {
-  return [...scheduleItems(db, span).map(({ sh, si }) => ({ d: si.dateStr || localDate(si.ts), ms: si.ms, sh, si })),
-    ...comingFilms(movies, span).map((f) => ({ d: f.dateStr, ms: f.ms, film: f.m }))]
-    .sort((a, b) => a.d.localeCompare(b.d) || a.ms - b.ms);
-}
-function scheduleHTML() {
-  const items = scheduleEntries(schedOpen ? null : 7 * 24 * 3600e3);
-  if (!items.length) return "";
-  const all = scheduleEntries(null);
-  const shown = items.slice(0, schedOpen ? 80 : 6);
-  let h = `<div class="sec"><h2>${t("sec_week")}</h2>${all.length > shown.length || schedOpen
-    ? `<button class="more" data-schedtoggle="1">${schedOpen ? t("show_less") : t("full_schedule", { n: all.length })}</button>` : ""}</div><div class="rows">`;
-  let day = null;
-  for (const x of shown) {
-    const p = dayParts(x.d), first = x.d !== day; day = x.d;
-    const when = `<span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b>` : ""}</span>`;
-    if (x.film) { h += `<div class="row dense"><button class="main" data-film="${esc(x.film.id)}">${when}${thumbHTML(x.film.poster, x.film.title)}
-      <span class="mid"><b class="clip">${esc(x.film.title)}</b><span class="tag">${t("film_tag")}</span></span></button></div>`; continue; }
-    const { sh, si } = x;
-    h += `<div class="row dense"><button class="main" data-show="${sh.id}">
-      ${when}${thumbHTML(sh.poster, sh.title)}
-      <span class="mid"><b class="clip">${esc(sh.title)}</b><span class="tag">${si.kind === "premiere" ? t("premiere") : si.code}</span></span>
-      <span class="side">${si.ts ? fmtTime(si.ts) : ""}</span></button></div>`;
+function calRow(x) {
+  const seen = x.st ? " seen" : "";
+  if (x.group) return `<div class="row dense${x.w === x.n ? " seen" : ""}"><button class="main" data-show="${x.sh.id}">${thumbHTML(x.sh.poster, x.sh.title)}
+    <span class="mid"><b class="clip">${esc(x.sh.title)}</b><span class="tag">${t("cal_batch", { n: x.n, w: x.w })}</span></span></button></div>`;
+  if (x.m) {
+    const m = x.m, tick = x.ahead ? "" : checkBtn("data-mvw", esc(m.id), m.title + ": " + t(x.st ? "mv_unwatch" : "mv_mark_watched"));
+    return `<div class="row dense${seen}"><button class="main" data-film="${esc(m.id)}">${thumbHTML(m.poster, m.title)}
+      <span class="mid"><b class="clip">${esc(m.title)}</b><span class="tag">${t("film_tag")}</span></span></button>${tick}</div>`;
   }
-  return h + `</div><p class="note">${t("sched_tz_note", { zone: zoneName() })}</p>`;
+  const sh = x.sh;
+  if (x.ahead) return `<div class="row dense"><button class="main" data-show="${sh.id}">${thumbHTML(sh.poster, sh.title)}
+    <span class="mid"><b class="clip">${esc(sh.title)}</b><span class="tag">${x.kind === "premiere" ? t("premiere") : x.code}</span></span>
+    <span class="side">${x.ts ? fmtTime(x.ts) : ""}</span></button></div>`;
+  const code = codeOf(x.s, x.e);
+  // Downloaded but not watched is shown, not a button: a tap there would mean "watched", which is a different thing.
+  const tick = x.st === "d" ? `<span class="tick cyan" role="img" aria-label="${esc(t("seen_dl_aria", { title: sh.title, code }))}">${ico("check")}</span>`
+    : checkBtn("data-ep", sh.id + ":" + x.s + ":" + x.e, x.st ? t("seen_w_aria", { title: sh.title, code }) : sh.title + ": " + t("btn_mark_ep", { code }));
+  return `<div class="row dense${seen}"><button class="main" data-show="${sh.id}">${thumbHTML(sh.poster, sh.title)}
+    <span class="mid"><b class="clip">${esc(sh.title)}</b><span class="tag">${code}${x.name ? " · " + esc(x.name) : ""}</span></span>${x.dl && x.st === "w" ? `<span class="side dlmark" role="img" aria-label="${esc(t("seen_dl_aria", { title: sh.title, code }))}">${ico("download")}</span>` : ""}</button>${tick}</div>`;
 }
-/* What came out and has not been ticked, dimmed, directly above the week ahead so the two read as one
-   timeline (older at the top, today at the seam). It never empties by itself: only a tick (or a
-   download tick) removes a row. Since 5.1 the ticked ones stay in view too (filled tick), so a person
-   can scroll up from "This week" and see yesterday and the days before with their marks: collapsed,
-   the last 7 days of everything; open, everything still to do plus the last 30 days of ticked rows. */
-const PAST_CAP = 300;   // the real library held 137; the cap only protects a phone from a four-figure backlog
-const SEEN_DAYS_OPEN = 30;
-function pastHTML() {
-  const seenMs = SEEN_DAYS_OPEN * 864e5;
-  // By the day printed on the row first (a date-only episode opens at the END of its day in the show's zone, which can
-  // be later than a timed episode of the next day), then by the moment, so the day labels always read in order.
-  const all = [...pastItems(db, null, seenMs), ...pastFilms(movies, null, seenMs)]
-    .sort((a, b) => b.dateStr.localeCompare(a.dateStr) || b.ms - a.ms);
-  const todo = all.filter((x) => !x.st), age = (x) => (Date.now() - x.ms) / 864e5;
-  const week = all.filter((x) => age(x) <= 7);
-  const base = week.length ? week : todo.slice(0, 3);
-  const full = all;
-  const shown = (pastOpen ? full.slice(0, PAST_CAP) : base.slice(0, 8)).slice().reverse();
-  if (!shown.length) return "";
-  let h = `<div class="sec"><h2>${t("sec_past")}</h2>${full.length > shown.length || pastOpen
-    ? `<button class="more" data-pasttoggle="1" aria-expanded="${pastOpen}">${pastOpen ? t("show_less") : t("past_all", { n: full.length })}</button>`
-    : todo.length ? `<span class="meta">${todo.length}</span>` : ""}</div><div class="rows past">`;
-  let day = null;
-  for (const x of shown) {
-    const p = dayParts(x.dateStr), first = x.dateStr !== day; day = x.dateStr;
-    const when = `<span class="when">${first ? `<span>${esc(p.wd)}</span><b>${p.n}</b><span>${esc(p.mo)}</span>` : ""}</span>`;
-    const seen = x.st ? " seen" : "";
-    if (x.m) {
-      h += `<div class="row dense${seen}"><button class="main" data-film="${esc(x.m.id)}">${when}${thumbHTML(x.m.poster, x.m.title)}
-      <span class="mid"><b class="clip">${esc(x.m.title)}</b><span class="tag">${t("film_tag")}</span></span></button>
-      ${checkBtn("data-mvw", esc(x.m.id), x.m.title + ": " + t(x.st ? "mv_unwatch" : "mv_mark_watched"))}</div>`;
-      continue;
-    }
-    const code = codeOf(x.s, x.e);
-    // Downloaded but not watched is shown, not a button: a tap there would mean "watched", which is a different thing.
-    const tick = x.st === "d" ? `<span class="tick cyan" role="img" aria-label="${esc(t("seen_dl_aria", { title: x.sh.title, code }))}">${ico("check")}</span>`
-      : checkBtn("data-ep", x.sh.id + ":" + x.s + ":" + x.e, x.st ? t("seen_w_aria", { title: x.sh.title, code }) : x.sh.title + ": " + t("btn_mark_ep", { code }));
-    h += `<div class="row dense${seen}"><button class="main" data-show="${x.sh.id}">
-      ${when}${thumbHTML(x.sh.poster, x.sh.title)}
-      <span class="mid"><b class="clip">${esc(x.sh.title)}</b><span class="tag">${code}${x.name ? " · " + esc(x.name) : ""}</span></span></button>
-      ${tick}</div>`;
-  }
-  h += `</div>`;
-  if (pastOpen && full.length > PAST_CAP) h += `<p class="note">${t("past_more", { n: full.length - PAST_CAP })}</p>`;
-  return h;
+function dayBlock(day) {
+  const hd = dayHead(day.d), isToday = day.d === todayISO();
+  return `<section class="day${isToday ? " today" : ""}"><h3 class="dayh"><b>${esc(hd.main)}</b><span>${esc(hd.sub)}</span></h3>${day.rows.length
+    ? `<div class="rows cal">${groupRows(day.rows).map(calRow).join("")}</div>` : `<p class="dayempty">${t(isToday ? "cal_none_today" : "cal_none_past")}</p>`}</section>`;
+}
+function calendarHTML() {
+  const f = calendarFlow(db, movies, { back: calBack, later: calLater });
+  calNext = f.earlier ? f.earlier.next : 7;
+  let h = `<div class="sec"><h2>${t("sec_cal")}</h2></div>`;
+  if (f.earlier || calBack) h += `<div class="calbar">${f.earlier ? `<button class="more" data-calback="1">${ico("up", "sm")}${f.earlier.todo ? t("cal_earlier_todo", { n: f.earlier.todo }) : t("cal_earlier")}</button>` : "<span></span>"}
+    ${calBack ? `<button class="more" data-calhide="1">${t("cal_hide")}</button>` : ""}</div>`;
+  h += f.days.map(dayBlock).join("");
+  if (f.later || f.laterOpen) h += `<div class="calbar"><button class="more" data-callater="1" aria-expanded="${f.laterOpen}">${f.laterOpen ? t("cal_later_hide") : t("cal_later", { n: f.later })}${ico(f.laterOpen ? "up" : "down", "sm")}</button></div>`;
+  return h + `<p class="note">${t("sched_tz_note", { zone: zoneName() })}</p>`;
+}
+/* Opening older days puts rows ABOVE the button that was tapped; keep that button where the finger is. */
+function calShift(btn, change) {
+  const y = btn.getBoundingClientRect().top;
+  change(); render();
+  const nb = document.querySelector("[data-calback]") || document.querySelector("[data-calhide]");
+  if (!nb) return;
+  const d = nb.getBoundingClientRect().top - y;
+  if (wide()) $("app").scrollTop += d; else window.scrollBy(0, d);
 }
 function pendingDownloadsHTML() {
   const isFresh = (v) => typeof v === "number" && v > 1;
@@ -247,25 +231,19 @@ function pendingDownloadsHTML() {
 }
 function viewNext() {
   if (!db.length && !movies.length) return `<header class="ph"><h1>${t("tab_next")}</h1></header>` + onboardHTML();
-  let up = upNextItems(db);
-  if (dlPrompt && !up.some((x) => x.s.id === dlPrompt.id)) {
-    const ps = db.find((x) => x.id === dlPrompt.id);
-    if (ps) up = [{ s: ps, n: { s: dlPrompt.s, e: dlPrompt.e, name: "" } }, ...up];
-  }
-  // The day is read in the viewer's zone (viewTZ), so it is the same day the schedule below uses.
+  const wait = pendingItems(db, movies);
+  // The day is read in the viewer's zone (viewTZ), so it is the same day the calendar below uses.
   const now = new Date(), tz = viewTZ();
   const wk = new Intl.DateTimeFormat(LANG, { weekday: "long", timeZone: tz }).format(now);
   const dayLong = new Intl.DateTimeFormat(LANG, { day: "numeric", month: "long", timeZone: tz }).format(now);
-  let h = `<header class="ph"><div><span class="wk">${esc(wk)}</span><h1>${esc(dayLong)}</h1></div>${up.length ? `<span class="chip tint">${t("n_to_watch", { n: up.length })}</span>` : ""}</header>`;
-  if (up.length) {
-    h += heroCard(up[0]);
-    const rest = up.slice(1);
-    // Every show is reachable from here: 12 covers, and "See all" lays the rest out in place (it used to leave the page).
-    if (rest.length) h += `<div class="sec"><h2>${t("sec_ready")}</h2>${rest.length > 12
-      ? `<button class="more" data-readytoggle="1" aria-expanded="${readyOpen}">${readyOpen ? t("show_less") : t("see_all")}</button>` : `<span class="meta">${t("more_n", { n: rest.length })}</span>`}</div>
-      <div class="wall${readyOpen ? " open" : ""}" data-sk="ready">${(readyOpen ? rest : rest.slice(0, 12)).map(readyCard).join("")}</div>`;
+  let h = `<header class="ph"><div><span class="wk">${esc(wk)}</span><h1>${esc(dayLong)}</h1></div>${wait.length ? `<span class="chip tint">${t("n_to_watch", { n: wait.length })}</span>` : ""}</header>` + dlAskHTML();
+  if (wait.length) {
+    // Everything waiting is here at a glance, newest release first: 12 covers, and "See all" lays the rest out in place.
+    h += `<div class="sec"><h2>${t("sec_ready")}</h2>${wait.length > 12
+      ? `<button class="more" data-readytoggle="1" aria-expanded="${readyOpen}">${readyOpen ? t("show_less") : t("see_all")}</button>` : ""}</div>
+      <div class="wall${readyOpen ? " open" : ""}" data-sk="ready">${(readyOpen ? wait : wait.slice(0, 12)).map(waitCard).join("")}</div>`;
   } else if (db.length) h += caughtUpHTML();
-  return h + pastHTML() + scheduleHTML() + pendingDownloadsHTML();
+  return h + calendarHTML() + pendingDownloadsHTML();
 }
 
 /* ================= Library ================= */

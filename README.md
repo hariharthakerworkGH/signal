@@ -9,12 +9,11 @@ server, no analytics and nothing to sign up for.
 
 ## What it does
 
-- **Next.** What to watch now: one big card for the show you were on, one tap to
-  mark the episode, the rest of what is ready as a wall of covers you swipe
-  sideways (tick on the art), what came out earlier (dimmed, newest at the bottom, each
-  with its tick filled or empty so you can scroll up and see what you missed; nothing
-  unticked disappears), and what airs this week.
-  Films you added before their release appear in both.
+- **Next.** What to watch now: a carousel of every episode and film still waiting
+  (tick on the cover, newest release first), then one calendar you slide up and down:
+  what you missed, yesterday, today and what is coming, each day once. Every row shows
+  whether you watched it, downloaded it, or neither; nothing unticked disappears.
+  Films you added before their release are in the same calendar.
 - **Library.** Everything you track, Shows or Movies, with search and status
   filters. Open a show for a numbered list of episodes with their titles and air
   dates; tap to mark. Episodes that have not aired are locked and unlock

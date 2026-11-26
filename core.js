@@ -10,8 +10,8 @@
    minor for features, a third number only for a fix). BUILD is a hidden counter
    that goes up by one every release and must match CACHE_NAME in sw.js, which
    is how the service worker knows a new build has landed. Bump both. */
-const APP_VERSION = "5.1";
-const BUILD = 57;
+const APP_VERSION = "5.2";
+const BUILD = 58;
 
 /* ================= small helpers ================= */
 const pad = (n) => String(n).padStart(2, "0");
@@ -111,18 +111,24 @@ function daysAway(iso) {
 }
 /* "Today", "Tomorrow", "Sun, Oct 11 - in 3 days": the words for today and
    tomorrow come from the browser, so every language gets them for free. */
+/* Yesterday, today or tomorrow. The browser's word is used, except where it gives yesterday and tomorrow the
+   SAME word (Hindi: "कल" for both), which on a calendar is exactly the confusion to avoid; then our own two are used. */
+function relDayWord(n) {
+  const rtf = new Intl.RelativeTimeFormat(loc(), { numeric: "auto" });
+  if (n === -1 || n === 1) { if (rtf.format(-1, "day") === rtf.format(1, "day")) return t(n < 0 ? "rel_yesterday" : "rel_tomorrow"); }
+  return cap(rtf.format(n, "day"));
+}
 function fmtDate(iso) {
   const n = daysAway(iso); if (n === null || isNaN(n)) return iso || t("tba");
   const rtf = new Intl.RelativeTimeFormat(loc(), { numeric: "auto" });
-  if (n >= -1 && n <= 1) return cap(rtf.format(n, "day"));
+  if (n >= -1 && n <= 1) return relDayWord(n);
   const d = new Date(iso + "T00:00:00").toLocaleDateString(loc(), { weekday: "short", day: "numeric", month: "short" });
   return n > 1 && n <= 7 ? d + " · " + rtf.format(n, "day") : d;
 }
 function fmtDay(iso) {   // heading over a day's episodes
   const n = daysAway(iso);
-  const rtf = new Intl.RelativeTimeFormat(loc(), { numeric: "auto" });
   const d = new Date(iso + "T00:00:00").toLocaleDateString(loc(), { weekday: "long", day: "numeric", month: "short" });
-  return n !== null && n >= 0 && n <= 1 ? cap(rtf.format(n, "day")) + " · " + d : d;
+  return n !== null && n >= -1 && n <= 1 ? relDayWord(n) + " · " + d : d;
 }
 function fmtTime(ts) { return new Date(ts).toLocaleTimeString(loc(), { hour: "numeric", minute: "2-digit", timeZone: viewTZ() }); }
 function agoLabel(ts) {
@@ -332,6 +338,74 @@ function scheduleItems(shows, withinMs) {
     // By the day shown on the row first (a date-only row opens at the END of its day in the show's zone,
     // which can be a few hours into the next day for the viewer), then by the moment inside that day.
     .sort((a, b) => (a.si.dateStr || "").localeCompare(b.si.dateStr || "") || a.si.ms - b.si.ms);
+}
+/* ================= one calendar (5.2) =================
+   5.0 and 5.1 drew "Released earlier" and "This week" as two lists split by whether an episode had aired, so the
+   same dates were printed twice and a person back after three days could not tell what they had missed from what
+   was on. Now there are two pieces and neither repeats the other:
+   - pendingItems: what is WAITING for you (aired, not ticked), shows and released films, freshest release first.
+   - calendarFlow: ONE timeline, every day once, oldest at the top, today in the middle, tomorrow below; each row
+     carries its state (watched, downloaded, to do, or still to air). Yesterday and today are always there. */
+function pendingItems(shows, movies) {
+  const out = [];
+  for (const x of upNextItems(shows)) {
+    const sh = x.s; let ms = 0, d = null;
+    scan: for (let i = sh.seasons.length - 1; i >= 0; i--) {   // newest unticked aired episode: from the end, stop at the first
+      const se = sh.seasons[i];
+      for (let j = se.eps.length - 1; j >= 0; j--) {
+        const ep = se.eps[j];
+        if ((sh.watched && sh.watched[epK(se.season, ep.e)]) || !aired(sh, ep)) continue;
+        ms = ep.ts ? new Date(ep.ts).getTime() : (ep.air ? airMoment(ep, sh) : 0); d = epDate(ep); break scan;
+      }
+    }
+    out.push({ sh, n: x.n, ms, d });
+  }
+  for (const f of pastFilms(movies, null)) out.push({ m: f.m, ms: f.ms, d: f.dateStr });
+  return out.sort((a, b) => b.ms - a.ms);   // a stable sort: ties keep the old "last watched first" order
+}
+/* opt.back = how many older days (groups with something in them) are opened above yesterday;
+   opt.later = open everything after the next 7 days. Returns
+   { days: [{ d, rows: [{ key, d, ms, st, sh|m, s, e, name, ahead }] }], earlier: { groups, todo } | null, later: n, laterOpen } */
+function calendarFlow(shows, movies, opt) {
+  const o = opt || {}, td = todayISO(), yd = ymd(Date.now() - 864e5), seenMs = 30 * 864e5;
+  const rows = [], seen = new Set();
+  const take = (r) => { if (seen.has(r.key)) return false; seen.add(r.key); return true; };   // one row per episode, wherever it came from
+  for (const x of pastItems(shows, null, seenMs)) { const r = { key: x.sh.id + ":" + x.s + ":" + x.e, d: x.dateStr, ms: x.ms, st: x.st, dl: !!(x.sh.dl && x.sh.dl[epK(x.s, x.e)]), sh: x.sh, s: x.s, e: x.e, name: x.name }; if (take(r)) rows.push(r); }
+  for (const x of pastFilms(movies, null, seenMs)) { const r = { key: "f:" + x.m.id, d: x.dateStr, ms: x.ms, st: x.st, m: x.m }; if (take(r)) rows.push(r); }
+  // Days before yesterday wait behind "Earlier". back = how many days before yesterday are open; a tap opens a week more
+  // but jumps over empty weeks (earlier.next), so a tap always shows something new.
+  const gap = (d) => Math.round((Date.parse(yd) - Date.parse(d)) / 864e5);
+  const old = [...new Set(rows.filter((r) => r.d < yd).map((r) => r.d))].sort().reverse();
+  const hidden = new Set(old.filter((d) => gap(d) > (o.back || 0)));
+  const earlier = hidden.size ? { groups: hidden.size, todo: rows.filter((r) => hidden.has(r.d) && !r.st).length, next: 7 * Math.ceil(gap([...hidden].sort().reverse()[0]) / 7) } : null;
+  const keep = rows.filter((r) => !hidden.has(r.d));
+  const horizon = o.later ? null : ymd(Date.now() + 7 * 864e5);
+  let later = 0;
+  const ahead = [];
+  for (const { sh, si } of scheduleItems(shows, null)) {
+    const d = si.dateStr || localDate(si.ts);
+    ahead.push({ key: si.kind === "premiere" ? sh.id + ":prem" : sh.id + ":" + sh.nextEp.s + ":" + sh.nextEp.e, d: d < td ? td : d, ms: si.ms, st: "", sh, kind: si.kind, code: si.code, ts: si.ts, ahead: true });
+  }
+  for (const x of comingFilms(movies, null)) ahead.push({ key: "f:" + x.m.id, d: x.dateStr, ms: x.ms, st: "", m: x.m, ahead: true });
+  for (const r of ahead) { if (!take(r)) continue; if (horizon && r.d > horizon) later++; else keep.push(r); }
+  const by = new Map([[yd, []], [td, []]]);
+  for (const r of keep) { if (!by.has(r.d)) by.set(r.d, []); by.get(r.d).push(r); }
+  const days = [...by].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([d, rs]) => ({ d, rows: rs.sort((a, b) => a.ms - b.ms || String(a.key).localeCompare(String(b.key))) }));
+  return { days, earlier, later, laterOpen: !!o.later };
+}
+/* A season dropped in one day (eight episodes at once) is ONE line, "8 episodes, 3 watched", not eight that push today
+   off the screen. Fewer than three of a show on a day stay separate rows; a row still to come is never grouped. */
+function groupRows(rows) {
+  const by = new Map();
+  for (const r of rows) if (r.sh && !r.ahead) { const g = by.get(r.sh.id); if (g) g.push(r); else by.set(r.sh.id, [r]); }
+  const out = [], done = new Set();
+  for (const r of rows) {
+    const g = r.sh && !r.ahead ? by.get(r.sh.id) : null;
+    if (g && g.length >= 3) { if (!done.has(r.sh.id)) { done.add(r.sh.id); out.push({ group: true, sh: r.sh, rows: g, n: g.length, w: g.filter((x) => x.st === "w").length }); } }
+    else out.push(r);
+  }
+  return out;
 }
 function libraryStats(shows) {
   let eps = 0, mins = 0, done = 0, watching = 0, backlog = 0, today = 0; const td = todayISO();

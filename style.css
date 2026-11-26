@@ -293,6 +293,7 @@ span.tick { cursor:default; }
 .row .mid b { display:block; max-width:100%; font-size:16px; font-weight:500; }
 .row .mid .l2 { display:block; max-width:100%; font-size:13px; color:var(--dim); }
 .row .side { flex:none; font-size:12px; color:var(--faint); }
+.row .side.dlmark { display:grid; place-items:center; color:var(--cyan); }   /* a watched row that is ALSO downloaded: cyan is "downloaded" everywhere in the app */
 .row .act { flex:none; }
 .row:hover .mid b { color:var(--at); }
 .row.dense .main { min-height:68px; }
@@ -303,38 +304,32 @@ span.tick { cursor:default; }
 .row .when b { font-size:20px; font-weight:600; }
 .row.done { opacity:.45; }
 .tag { display:inline-block; font-size:12px; color:var(--dim); background:var(--up); border-radius:6px; padding:1px 7px; }
-/* "Released earlier": the same rows as the week ahead, set back and a little bigger so they are easy to tick.
-   Only the title colour and the poster are dimmed (never the whole row with opacity), so every word still
-   clears 4.5:1 and the tick stays full strength. */
-.rows.past .row .mid b { color:var(--dim); font-weight:400; }
-.rows.past .row:hover .mid b { color:var(--at); }
-.rows.past .row.seen .mid b, .rows.past .row.seen:hover .mid b { color:var(--faint); }
-.rows.past .row.seen .thumb { opacity:.4; }
-.rows.past .row.dense .thumb { width:46px; height:68px; }
-.rows.past .thumb { opacity:.6; }
-.rows.past .when span, .rows.past .when b { color:var(--faint); }
-.rows.past .tag { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--faint); background:none; padding-inline:0; }
+/* The calendar (5.2): one list, a heading per day, rows without a date column. What you have already ticked
+   is set back (title colour and poster only, never the whole row, so every word still clears 4.5:1 and the tick stays
+   full strength); what is still to do and what is still to come read at full strength. */
+.day { margin-block-start:16px; }
+.dayh { display:flex; align-items:baseline; gap:10px; padding-block:4px 2px; }
+.dayh b { font-size:17px; font-weight:600; }
+.dayh span { font-size:13px; color:var(--dim); }
+.day.today .dayh b { color:var(--at); }
+.dayempty { font-size:13px; color:var(--faint); padding-block:2px 4px; }
+.rows.cal .tag { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rows.cal .row.seen .mid b, .rows.cal .row.seen:hover .mid b { color:var(--faint); font-weight:400; }
+.rows.cal .row.seen .thumb { opacity:.4; }
+.rows.cal .row.seen .tag { color:var(--faint); background:none; padding-inline:0; }
+.calbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-block-start:12px; }
+.calbar .more { display:inline-flex; align-items:center; gap:6px; min-height:44px; padding-block:10px; color:var(--at); font-size:13px; font-weight:600; }
+.calbar .more .ico { width:16px; height:16px; }
 
 /* ---------- Next ---------- */
-/* The hero: a blurred copy of the cover fills the card, the cover leans out of it, the one amber button sits below. */
-.hcard { position:relative; display:block; margin-block-start:10px; border-radius:var(--r-xl); overflow:hidden; background:var(--card); isolation:isolate; }
-.hcard .hbg { position:absolute; inset:-28px; z-index:-2; background-size:cover; background-position:center 25%; filter:blur(26px) saturate(1.3) brightness(.55); }
-.hcard::after { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(to top,var(--img-scrim) 8%,transparent 66%); }
-.hcard .hpst { position:absolute; inset-block-start:22px; inset-inline:0; margin-inline:auto; width:152px; aspect-ratio:2/3; border-radius:16px; overflow:hidden;
-  transform:rotate(-2deg); box-shadow:var(--shadow-hero); background:var(--up); }
-.hcard .hpst img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-.hcard .hpst .ini { position:absolute; inset:0; display:grid; place-items:center; font-size:36px; font-weight:600; color:var(--faint); }
-.hcard .hin { position:relative; margin-block-start:272px; padding:0 16px 16px; display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
-.hcard .open { display:block; text-align:start; color:var(--on-img); }
-.hcard .kick { display:inline-flex; font-size:12px; font-weight:600; padding:4px 10px; border-radius:8px; background:rgba(255,255,255,.16); color:var(--on-img); }
-.hcard h2 { margin-block-start:10px; font-size:30px; font-weight:600; letter-spacing:-.025em; line-height:1.08; color:var(--on-img); }
-.hcard .l2 { margin-block-start:4px; font-size:14px; color:var(--on-img-dim); display:block; }
-.hcard .go { display:flex; gap:10px; min-width:0; }
-/* On a 320px phone "Mark S01E05 watched" is wider than the card: it wraps to two lines rather than push the round button out. */
-.hcard .go .btn { min-height:50px; border-radius:16px; font-size:16px; white-space:normal; line-height:1.2; text-align:center; padding-block:6px; }
-.hcard .go .primary, .hcard .go .cyan { flex:1; min-width:0; padding-inline:14px; }
-.hcard .go .ic { flex:none; width:50px; }
-.hcard .go .soft { background:rgba(255,255,255,.16); color:var(--on-img); }
+/* The question after a tick: "downloaded it too?" It sat on the hero card until 5.2 removed the hero. */
+/* Fixed above the tab bar like the toast: inserted in the page it pushed the covers down 190px under the thumb right after a tick. */
+.dlask { position:fixed; inset-inline:14px; inset-block-end:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px); z-index:60; max-width:min(92vw,480px); margin-inline:auto;
+  display:flex; align-items:center; gap:12px; padding:12px 14px; background:var(--hi); border-radius:18px; border:1px solid var(--hair); box-shadow:var(--shadow-toast); }   /* no entrance animation: every redraw (the background refresh redraws about once a second) would replay it */
+@media (min-width:720px) { .dlask { inset-block-end:20px; inset-inline-start:calc(var(--rail) + 14px); margin-inline:0; } }
+.dlask .txt { flex:1; min-width:0; display:grid; gap:2px; font-size:13px; color:var(--dim); }
+.dlask .txt b { font-size:15px; font-weight:600; color:var(--text); }
+.dlask .btn { flex:none; }
 /* Ready to watch: a wall of covers you swipe sideways. The tick sits on the art; "See all" lays them out three across. */
 .wall { display:flex; gap:12px; overflow-x:auto; margin-inline:-16px; padding:2px 16px 6px; scroll-snap-type:x mandatory; scroll-padding-inline:16px; scrollbar-width:none; }
 .wall::-webkit-scrollbar { display:none; }
@@ -351,6 +346,7 @@ span.tick { cursor:default; }
 .pc.done .art img { filter:grayscale(.8) brightness(.5); transform:scale(1.04); }
 .pc b { display:block; margin-block-start:9px; font-size:14px; font-weight:600; }
 .pc small { display:block; color:var(--dim); font-size:13px; }
+.pc small.fresh { color:var(--at); }
 .dlrow { display:flex; align-items:center; gap:10px; width:100%; margin-block-start:16px; padding:0 16px; min-height:52px; border-radius:16px;
   background:var(--card); border:1px solid var(--hair); text-align:start; font-size:14px; }
 .dlrow .ico:first-child { color:var(--cyan); width:18px; height:18px; }

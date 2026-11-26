@@ -296,6 +296,79 @@ test("films (5.1): withSeen lists a watched film with st w, and the default stil
   });
 });
 
+/* ---------- one calendar (5.2) ----------
+   5.0 and 5.1 split the same timeline into "Released earlier" and "This week" by whether an episode had aired,
+   so the same dates were printed twice and an episode inside its first hour could be in both. These checks pin the
+   zone to Delhi (17:30 on 26 Nov) so "yesterday" and "today" are the same days on every machine. */
+const calNow = (fn) => atTime("2026-11-26T12:00:00Z", () => { setTZ("Asia/Kolkata"); try { return fn(); } finally { setTZ(""); } });
+const tsE = (e, iso) => ep(e, { ts: iso, air: iso.slice(0, 10) });
+const calDays = (f) => f.days.map((x) => x.d);
+const calKeys = (f) => f.days.map((x) => x.rows.map((r) => r.key));
+test("calendar: yesterday and tomorrow never read as the same word, in any language (Hindi 'कल' means both)", () => calNow(() => {
+  try {
+    for (const l of SUPPORTED_LANGS) {
+      setLang(l);
+      const y = fmtDate("2026-11-25"), tm = fmtDate("2026-11-27"), td = fmtDate("2026-11-26");
+      if (y === tm) throw new Error(l + ": yesterday and tomorrow are both '" + y + "'");
+      if (fmtDay("2026-11-25").split(" · ")[0] === fmtDay("2026-11-27").split(" · ")[0]) throw new Error(l + ": day heads match");
+      if (td === y || td === tm) throw new Error(l + ": today matches a neighbour");
+    }
+  } finally { setLang("en"); }
+}));
+test("calendar: every day is listed once, oldest first, and no episode appears twice (the 5.1 bug: same dates in two lists)", () => calNow(() => {
+  const a = show({ id: 1, title: "A", inProduction: true, watched: { "1-1": T(1) },
+    seasons: [{ season: 1, eps: [tsE(1, "2026-11-25T14:00:00+00:00"), tsE(2, "2026-11-26T06:00:00+00:00"), tsE(3, "2026-11-26T11:30:00+00:00")] }],
+    nextEp: { s: 1, e: 3, ts: "2026-11-26T11:30:00+00:00", date: "2026-11-26" } });   // aired 30 minutes ago and still the "next" one: in both lists in 5.1
+  const b = show({ id: 2, title: "B", inProduction: true, watched: { "1-1": 1 },
+    seasons: [{ season: 1, eps: [tsE(1, "2020-01-01T00:00:00+00:00"), tsE(2, "2026-11-26T16:00:00+00:00")] }],
+    nextEp: { s: 1, e: 2, ts: "2026-11-26T16:00:00+00:00", date: "2026-11-26" } });
+  const c = show({ id: 3, title: "C", seasons: [{ season: 1, eps: [tsE(1, "2026-11-27T02:00:00+00:00")] }] });   // a premiere tomorrow
+  const f = calendarFlow([a, b, c], [], {});
+  eq(calDays(f), ["2026-11-25", "2026-11-26", "2026-11-27"]);
+  eq(calKeys(f), [["1:1:1"], ["1:1:2", "1:1:3", "2:1:2"], ["3:prem"]]);   // the 30-minute-old episode is one row, in the past, with an empty tick
+  eq(f.days[1].rows.map((r) => !!r.ahead), [false, false, true]);
+  eq(f.days[0].rows[0].st, "w");
+}));
+test("calendar: each row says what you did with it: watched w, downloaded only d, still to do empty", () => calNow(() => {
+  const sh = show({ id: 1, inProduction: true, watched: { "1-1": T(1), "1-4": T(1) }, dl: { "1-2": 1, "1-4": 1 },
+    seasons: [{ season: 1, eps: [tsE(1, "2026-11-25T10:00:00+00:00"), tsE(2, "2026-11-25T11:00:00+00:00"), tsE(3, "2026-11-25T12:00:00+00:00"), tsE(4, "2026-11-25T13:00:00+00:00")] }] });
+  const rs = calendarFlow([sh], [], {}).days[0].rows;
+  eq(rs.map((r) => r.st), ["w", "d", "", "w"]);
+  eq(rs.map((r) => r.dl), [false, true, false, true]);   // watched AND downloaded is its own state: marks are independent
+
+}));
+test("calendar: yesterday and today are always there, even empty; older days wait behind Earlier, a week a tap, never an empty tap", () => calNow(() => {
+  const sh = show({ id: 1, inProduction: true, seasons: [{ season: 1, eps: [tsE(1, "2026-11-21T14:00:00+00:00"), tsE(2, "2026-11-22T14:00:00+00:00"), tsE(3, "2026-11-24T14:00:00+00:00"), tsE(4, "2026-10-26T14:00:00+00:00")] }] });
+  const f0 = calendarFlow([sh], [], {});
+  eq(calDays(f0), ["2026-11-25", "2026-11-26"]); eq(f0.days.map((x) => x.rows.length), [0, 0]);
+  eq(f0.earlier, { groups: 4, todo: 4, next: 7 });
+  const f1 = calendarFlow([sh], [], { back: 1 });
+  eq(calDays(f1), ["2026-11-24", "2026-11-25", "2026-11-26"]); eq(f1.earlier, { groups: 3, todo: 3, next: 7 });
+  const f4 = calendarFlow([sh], [], { back: 4 });
+  eq(calDays(f4), ["2026-11-21", "2026-11-22", "2026-11-24", "2026-11-25", "2026-11-26"]); eq(f4.earlier, { groups: 1, todo: 1, next: 35 });   // the next tap jumps the empty weeks to 26 Oct
+  eq(calendarFlow([sh], [], { back: 35 }).earlier, null);
+}));
+test("calendar: the week ahead by default, Later opens the rest; a film added before its release is in it too", () => calNow(() => {
+  const mk = (id, ts) => show({ id, inProduction: true, watched: { "1-1": 1 }, seasons: [{ season: 1, eps: [ep(1, { air: "2000-01-01" })] }], nextEp: { s: 2, e: 1, ts, date: ts.slice(0, 10) } });
+  const shows = [mk(1, "2026-11-29T14:00:00+00:00"), mk(2, "2026-12-16T14:00:00+00:00")];
+  const movies = [film("f", "2026-12-06", "2026-11-01T10:00:00Z")];
+  const f = calendarFlow(shows, movies, {});
+  eq(calDays(f), ["2026-11-25", "2026-11-26", "2026-11-29"]); eq(f.later, 2); eq(f.laterOpen, false);
+  const g = calendarFlow(shows, movies, { later: true });
+  eq(calDays(g), ["2026-11-25", "2026-11-26", "2026-11-29", "2026-12-06", "2026-12-16"]); eq(g.later, 0); eq(g.laterOpen, true);
+}));
+test("calendar: three or more episodes of one show on one day become one line with the count watched; two stay as they are", () => calNow(() => {
+  const mk = (id, n) => show({ id, inProduction: true, watched: { "1-1": T(1) }, seasons: [{ season: 1, eps: Array.from({ length: n }, (_, i) => tsE(i + 1, "2026-11-25T" + String(10 + i).padStart(2, "0") + ":00:00+00:00")) }] });
+  const items = groupRows(calendarFlow([mk(1, 8), mk(2, 2)], [], {}).days[0].rows);
+  eq(items.map((x) => (x.group ? "g" + x.sh.id + ":" + x.n + ":" + x.w : x.key)), ["g1:8:1", "2:1:1", "2:1:2"]);
+}));
+test("waiting: shows and released films together, freshest release first (so after days away the new ones lead)", () => calNow(() => {
+  const mk = (id, iso) => show({ id, inProduction: true, seasons: [{ season: 1, eps: [tsE(1, iso)] }] });
+  const items = pendingItems([mk(1, "2026-11-25T14:00:00+00:00"), mk(2, "2026-11-26T06:00:00+00:00")], [film("x", "2026-11-23", "2026-11-01T10:00:00Z")]);
+  eq(items.map((x) => (x.sh ? "s" + x.sh.id : "f" + x.m.id)), ["s2", "s1", "fx"]);
+  eq(items[0].d, "2026-11-26");
+}));
+
 /* ---------- films on Next (4.4) ---------- */
 const film = (id, rel, added, extra) => ({ id, title: id, releaseDate: rel, addedAt: added ? Date.parse(added) : null, watched: false, ...extra });
 test("films: one added BEFORE its release shows as released from its release day, until it is ticked", () => {

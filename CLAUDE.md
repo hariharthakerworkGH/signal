@@ -101,24 +101,35 @@ action except those in `KEEP_MENU`.
   to watch), UP TO DATE (current, or a premiere still ahead), DONE (finished,
   ended, or nothing aired in 18 months). `bucketOverride` is the user's manual
   say and always wins; a dropped show keeps its history and leaves tracking.
-- **Up next** (`upNextItems`) is every show in WATCHING, most recently watched first,
-  then shows not yet started by what aired last. Nothing is left out for being old: only
-  a tick (watched, or the show dropped) takes a show off Next. The first show is the hero;
-  the rest are the **Ready wall** (5.0): a row of covers you swipe sideways, the tick on the
-  art, 12 shown and "See all" lays all of them out three across in place. **Released earlier** (`pastItems`, `pastHTML`) sits dimmed above "This week":
-  every aired episode not ticked watched or downloaded, the last 7 days when collapsed,
-  all (cap 300) when opened. Rule: a list on Next may never empty by itself because time
-  passed. **Since 5.1 the ticked ones stay in view too** (`pastItems(shows, withinMs, seenMs)`
-  returns each row with `st` = `w` watched, `d` downloaded only, empty = still to do): collapsed it
-  is the last 7 days of everything, opened it is everything still to do plus the last 30 days of
-  ticked rows, so a person can scroll up from "This week" and see what they missed and what they
-  marked. A ticked row has a filled tick (`.seen`); tapping a watched one unmarks it, a
-  downloaded-only one is a plain marker, not a button. `seenMs` is a window on purpose: a real
-  library holds 20,000 ticked episodes and the unwindowed list took 390 ms a redraw. Rows are
-  ordered by the day printed on them, then by moment. **Films (4.4)** follow the same rule: one you added before (or on) its release
-  day, not yet ticked, is in "Released earlier" from that day (`pastFilms`) and in
-  "This week" while it is still ahead (`comingFilms`). A film added after it was out, or
-  with no add date, stays in Library > Movies only.
+- **Next is two things (5.2), and a day is never shown twice.** On top, the **Ready to
+  watch carousel** (`pendingItems`): every show with aired episodes left and every released
+  film not yet ticked, newest release first ("Out yesterday" and "Out today" in amber), the
+  tick on the cover, 12 shown and "See all" lays all of them out three across in place.
+  Nothing is left out for being old: only a tick (watched, or the show dropped) takes an
+  item off it. Below it, ONE **calendar** (`calendarFlow`, drawn by `calendarHTML`): each day
+  once, oldest at the top, then Yesterday, Today (both always shown, even empty), Tomorrow and
+  a 7-day horizon; "Later" opens the rest and "Earlier" opens one more week per tap
+  (`earlier.next` skips empty weeks). Every row says what the person did: empty tick = still to
+  do, amber check = watched, cyan tick = downloaded only, amber check plus a cyan arrow = both
+  (`dlmark`). Three or more episodes of one show on one day become one row (`groupRows`,
+  "8 episodes · 0 watched"; it has no tick, so the person ticks from the carousel or the
+  show). Rule: a list on Next may never empty by itself because time passed, and **never
+  split one timeline into two lists by a state** (aired/unaired, ticked/unticked): 5.0 and 5.1
+  printed "Released earlier" and "This week" side by side and the same dates appeared twice.
+  The test that guards it is `calendar: each day once`; before changing this screen write
+  the owner's question as a test: back after 3 days, what did I miss, what airs today,
+  what aired yesterday, watched or downloaded? `pastItems(shows, withinMs, seenMs)` still
+  returns each aired row with `st` = `w` / `d` / empty and `calendarFlow` adds `dl`;
+  `seenMs` is a window on purpose (a real library holds 20,000 ticked episodes and the
+  unwindowed list took 390 ms a redraw). Rows are ordered by the day printed on them, then by
+  moment. **Films (4.4)** sit in the same calendar: a film added before (or on) its release
+  day and not yet ticked is on its day (`pastFilms` when out, `comingFilms` when ahead). A film added
+  after it was out, or with no add date, stays in Library > Movies only. The "Downloaded it?"
+  ask (`dlAskHTML`) is a fixed card above the tab bar, never part of the page flow, because in
+  the flow it pushed the covers down and a tap landed on the wrong one.
+- **Yesterday and tomorrow words (5.2).** `relDayWord(n)` writes them. Hindi's own
+  `RelativeTimeFormat` gives "कल" for both -1 and +1, so when the two match the app uses the
+  `rel_yesterday` / `rel_tomorrow` strings instead.
 - Dates are local `YYYY-MM-DD` strings built the local way - never
   `toISOString()`, which is a day behind in India.
 - Cloud sync is a private Gist holding `{shows, deleted, movies}`. Deletions are
@@ -198,9 +209,10 @@ add paths, a topbar, and a settings sheet holding everything else. 4.0 keeps the
 look and rebuilds the map as three places, each with one job:
 
 - **Next** (`viewNext`): the day in large type (weekday over date, in the viewer's zone)
-  with a count chip, one hero card for the show you were last on with the one filled
-  button, then the "Ready to watch" wall of covers, what came out earlier (dimmed),
-  this week's schedule, and a single "N to download" line that expands.
+  with a count chip, the "Ready to watch" carousel of everything pending (shows and
+  released films), then ONE calendar that runs from what you missed, through yesterday and
+  today, to what is coming (5.2; the 4.0 to 5.1 hero card and the separate "earlier" and
+  "this week" lists are gone), and a single "N to download" line that expands.
 - **Library** (`viewLibrary`): Shows | Movies, search, status chips with counts,
   grid or list. Settings is the icon in its header (and the rail's foot on wide).
 - **Find** (`viewFind`): one search for shows and films; idle, it is Discover.
